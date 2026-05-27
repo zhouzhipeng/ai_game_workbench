@@ -3,38 +3,56 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../src/App";
 
+const fetchMock = vi.fn();
+
 beforeEach(() => {
   const NativeURL = globalThis.URL;
   class TestURL extends NativeURL {
-    static createObjectURL = vi.fn(() => "blob:first-frame-preview");
+    static createObjectURL = vi.fn(() => "blob:uploaded-input-preview");
     static revokeObjectURL = vi.fn();
   }
   vi.stubGlobal("URL", TestURL);
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async (url: string) => {
-      if (url.includes("/api/assets/first-frame")) {
-        return {
-          ok: true,
-          json: async () => ({
-            fileName: "hero-front.png",
-            publicUrl: "https://assets.example.com/hero-front.png"
-          })
-        };
-      }
-      if (url.includes("/api/generation/video")) {
-        return {
-          ok: true,
-          json: async () => ({ id: "video_job_123", status: "queued" })
-        };
-      }
-      return {
-        ok: false,
-        status: 404,
-        json: async () => ({ error: "not found" })
-      };
-    })
-  );
+  vi.stubGlobal("fetch", fetchMock);
+  fetchMock.mockReset();
+  fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+    if (url.includes("/api/assets/first-frame")) {
+      return jsonResponse({
+        fileName: "hero-raw.png",
+        publicUrl: "https://assets.example.com/hero-raw.png"
+      });
+    }
+    if (url.includes("/api/generation/first-frame")) {
+      return jsonResponse({
+        fileName: "hero-processed.png",
+        imageUrl: "https://assets.example.com/hero-processed.png",
+        publicUrl: "https://assets.example.com/hero-processed.png"
+      });
+    }
+    if (url.includes("/api/generation/video/video_job_123")) {
+      return jsonResponse({
+        jobId: "video_job_123",
+        status: "completed",
+        localVideoUrl: "/jobs/video_job_123/source.mp4"
+      });
+    }
+    if (url.includes("/api/generation/video") && init?.method === "POST") {
+      return jsonResponse({
+        id: "video_job_123",
+        status: "queued"
+      });
+    }
+    if (url.includes("/api/processing/frames")) {
+      return jsonResponse({
+        jobId: "video_job_123",
+        frames: [
+          { index: 1, url: "/jobs/video_job_123/frames/transparent/frame_001.png" },
+          { index: 2, url: "/jobs/video_job_123/frames/transparent/frame_002.png" },
+          { index: 3, url: "/jobs/video_job_123/frames/transparent/frame_003.png" }
+        ]
+      });
+    }
+    return jsonResponse({ error: "not found" }, false, 404);
+  });
 });
 
 afterEach(() => {
@@ -43,190 +61,134 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+function jsonResponse(body: unknown, ok = true, status = 200) {
+  return {
+    ok,
+    status,
+    json: async () => body
+  };
+}
+
 function openSpriteAnimator() {
   render(<App />);
   fireEvent.click(screen.getByRole("button", { name: /AI 精灵动画生成/i }));
 }
 
 describe("App", () => {
-  it("opens the AI sprite animator module from the Chinese workbench hub", () => {
-    render(<App />);
-
-    expect(screen.getByRole("heading", { name: /AI 游戏工作台/i })).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: /AI 精灵动画生成/i }));
-
-    expect(screen.getByRole("heading", { name: /AI 精灵动画生成/i })).toBeInTheDocument();
-    expect(screen.getByText("首帧预览")).toBeInTheDocument();
-    expect(screen.getByText("视频预览")).toBeInTheDocument();
-    expect(screen.getByText("导出预览")).toBeInTheDocument();
-    expect(screen.getByLabelText(/朝向/i)).toHaveValue("front");
-    expect(screen.getByLabelText(/资产标识/i)).toHaveValue("hero_mecha");
-    expect(screen.getByLabelText(/动画标识/i)).toHaveValue("idle");
-  });
-
-  it("uploads an image and shows it in the first-frame preview", () => {
+  it("opens a Chinese three-stage sprite workflow", () => {
     openSpriteAnimator();
 
-    const file = new File(["fake-image"], "hero-front.png", { type: "image/png" });
-    fireEvent.change(screen.getByLabelText("上传首帧文件"), {
-      target: { files: [file] }
-    });
-
-    expect(screen.getByAltText("首帧预览")).toHaveAttribute("src", "blob:first-frame-preview");
-    expect(screen.getAllByText("hero-front.png").length).toBeGreaterThan(0);
-    expect(screen.getByText(/已载入首帧/)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "AI 精灵动画生成" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /第一段.*首帧处理/ })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /第二段.*视频生成/ })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /第三段.*帧处理/ })).toBeInTheDocument();
+    expect(screen.getAllByText("输入预览")).toHaveLength(3);
+    expect(screen.getAllByText("输出预览")).toHaveLength(3);
+    expect(screen.getByLabelText(/图像模型/i)).toHaveValue("bytedance-seed/seedream-4.5");
+    expect(screen.getByLabelText(/视频模型/i)).toHaveValue("bytedance/seedance-2.0");
+    expect(screen.getByText("https://darn-skittle-unwoven.ngrok-free.dev")).toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: /公网资源地址/i })).not.toBeInTheDocument();
   });
 
-  it("shows a clear error when generating animation without a first frame", () => {
-    openSpriteAnimator();
-
-    fireEvent.click(screen.getByRole("button", { name: /生成动画/i }));
-
-    expect(screen.getAllByText(/请先上传或生成首帧/).length).toBeGreaterThan(0);
-  });
-
-  it("submits a video generation request after the first frame is uploaded", async () => {
+  it("runs first-frame processing, video polling, and frame processing through the visible workflow", async () => {
     openSpriteAnimator();
 
     fireEvent.change(screen.getByLabelText(/OpenRouter 密钥/i), {
       target: { value: "sk-or-v1-web-key" }
     });
-    fireEvent.change(screen.getByLabelText(/公网资源地址/i), {
-      target: { value: "https://asset-tunnel.trycloudflare.com" }
-    });
-    const file = new File(["fake-image"], "hero-front.png", { type: "image/png" });
-    fireEvent.change(screen.getByLabelText("上传首帧文件"), {
+
+    const file = new File(["fake-image"], "hero-raw.png", { type: "image/png" });
+    fireEvent.change(screen.getByLabelText("上传输入图片"), {
       target: { files: [file] }
     });
-    await screen.findByText(/首帧已上传/);
-    await waitFor(() => expect(screen.getByLabelText(/首帧公网 URL/i)).toHaveValue("https://assets.example.com/hero-front.png"));
 
-    fireEvent.click(screen.getByRole("button", { name: /生成动画/i }));
+    expect(screen.getByAltText("首帧输入预览")).toHaveAttribute("src", "blob:uploaded-input-preview");
+    await screen.findByDisplayValue("https://assets.example.com/hero-raw.png");
 
-    await waitFor(() => expect(screen.getAllByText(/视频任务已提交/).length).toBeGreaterThan(0));
-    const fetchMock = vi.mocked(fetch);
+    fireEvent.click(screen.getByRole("button", { name: /处理首帧/i }));
+
+    await screen.findByAltText("首帧输出预览");
+    expect(screen.getByAltText("视频输入预览")).toHaveAttribute("src", "https://assets.example.com/hero-processed.png");
+
+    fireEvent.change(screen.getByLabelText(/视频模型/i), {
+      target: { value: "kwaivgi/kling-v3.0-std" }
+    });
+    expect(screen.getByText(/当前模型最短时长：3 秒/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /提交视频任务/i }));
+
+    await screen.findByText(/视频已下载到 storage\/jobs\/video_job_123\/source.mp4/);
+    expect(screen.getByLabelText("视频输出预览")).toHaveAttribute(
+      "src",
+      "http://127.0.0.1:8787/jobs/video_job_123/source.mp4"
+    );
+    expect(screen.getByLabelText("帧处理视频输入预览")).toHaveAttribute(
+      "src",
+      "http://127.0.0.1:8787/jobs/video_job_123/source.mp4"
+    );
+
+    fireEvent.change(screen.getByLabelText(/抽帧数量/i), {
+      target: { value: "3" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: /处理视频帧/i }));
+
+    await screen.findByAltText("第 1 帧");
+    expect(screen.getAllByRole("button", { name: /屏蔽第 .* 帧/ })).toHaveLength(3);
+    fireEvent.click(screen.getByRole("button", { name: "屏蔽第 1 帧" }));
+    fireEvent.click(screen.getByRole("button", { name: "播放帧动画" }));
+    expect(screen.getAllByText(/播放中/).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: "停止帧动画" }));
+    expect(screen.getAllByText(/已停止/).length).toBeGreaterThan(0);
+
+    const videoCall = fetchMock.mock.calls.find(([url, init]) =>
+      String(url).includes("/api/generation/video") && (init as RequestInit | undefined)?.method === "POST"
+    );
+    expect(JSON.parse(String(videoCall?.[1]?.body))).toMatchObject({
+      model: "kwaivgi/kling-v3.0-std",
+      durationSeconds: 3,
+      firstFrameUrl: "https://assets.example.com/hero-processed.png"
+    });
     const uploadCall = fetchMock.mock.calls.find(([url]) => String(url).includes("/api/assets/first-frame"));
     expect(uploadCall?.[1]).toMatchObject({
       headers: expect.objectContaining({
-        "x-public-asset-base-url": "https://asset-tunnel.trycloudflare.com"
+        "x-public-asset-base-url": "https://darn-skittle-unwoven.ngrok-free.dev"
       })
-    });
-    const videoCall = fetchMock.mock.calls.find(([url]) => String(url).includes("/api/generation/video"));
-    expect(videoCall).toBeDefined();
-    expect(videoCall?.[1]).toMatchObject({
-      method: "POST",
-      headers: expect.objectContaining({
-        "x-openrouter-api-key": "sk-or-v1-web-key"
-      })
-    });
-    expect(JSON.parse(String(videoCall?.[1]?.body))).toMatchObject({
-      model: "bytedance/seedance-2.0",
-      firstFrameUrl: "https://assets.example.com/hero-front.png"
     });
   });
 
-  it("shows backend video generation errors clearly", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (url: string) => {
-        if (url.includes("/api/assets/first-frame")) {
-          return {
-            ok: true,
-            json: async () => ({
-              fileName: "hero-front.png",
-              publicUrl: "http://127.0.0.1:8787/assets/hero-front.png"
-            })
-          };
-        }
-        if (url.includes("/api/generation/video")) {
-          return {
-            ok: false,
-            status: 400,
-            json: async () => ({ error: "OpenRouter 视频首帧需要公网 HTTPS 图片 URL" })
-          };
-        }
-        return {
-          ok: false,
-          status: 404,
-          json: async () => ({ error: "not found" })
-        };
-      })
-    );
+  it("allows video generation to upload a first frame directly in the second stage", async () => {
     openSpriteAnimator();
 
     fireEvent.change(screen.getByLabelText(/OpenRouter 密钥/i), {
       target: { value: "sk-or-v1-web-key" }
     });
-    const file = new File(["fake-image"], "hero-front.png", { type: "image/png" });
-    fireEvent.change(screen.getByLabelText("上传首帧文件"), {
+    const file = new File(["direct-video-frame"], "direct-first-frame.png", { type: "image/png" });
+    fireEvent.change(screen.getByLabelText("上传视频首帧"), {
       target: { files: [file] }
     });
-    await screen.findByText(/首帧已上传/);
 
-    fireEvent.click(screen.getByRole("button", { name: /生成动画/i }));
+    await screen.findByText(/视频首帧已保存/);
+    expect(screen.getByAltText("视频输入预览")).toHaveAttribute("src", "blob:uploaded-input-preview");
 
-    await waitFor(() => expect(screen.getAllByText(/公网 HTTPS 图片 URL/).length).toBeGreaterThan(0));
+    fireEvent.click(screen.getByRole("button", { name: /提交视频任务/i }));
+
+    await screen.findByText(/视频已下载到 storage\/jobs\/video_job_123\/source.mp4/);
+    const videoCall = fetchMock.mock.calls.find(([url, init]) =>
+      String(url).includes("/api/generation/video") && (init as RequestInit | undefined)?.method === "POST"
+    );
+    expect(JSON.parse(String(videoCall?.[1]?.body))).toMatchObject({
+      firstFrameUrl: "https://assets.example.com/hero-raw.png"
+    });
   });
 
-  it("exposes Chinese generation prompts and custom image size as editable controls", () => {
+  it("saves edited Chinese prompts and restores them when the module reopens", () => {
     openSpriteAnimator();
 
-    const imagePrompt = screen.getByLabelText(/^图片提示词$/i);
-    expect((imagePrompt as HTMLTextAreaElement).value).toContain("像素");
-    fireEvent.change(imagePrompt, { target: { value: "正面像素骑士" } });
-    expect(imagePrompt).toHaveValue("正面像素骑士");
-
-    const imageInstructions = screen.getByLabelText(/图片提示词约束/i);
-    fireEvent.change(imageInstructions, { target: { value: "使用纯色洋红背景" } });
-    expect(imageInstructions).toHaveValue("使用纯色洋红背景");
-
-    const imageSize = screen.getByLabelText(/图片生成尺寸/i);
-    fireEvent.change(imageSize, { target: { value: "768" } });
-    expect(imageSize).toHaveValue(768);
-
-    const finalImagePrompt = screen.getByLabelText(/最终图片提示词/i);
-    expect((finalImagePrompt as HTMLTextAreaElement).value).toContain("画布");
-    expect((finalImagePrompt as HTMLTextAreaElement).value).toContain("正面像素骑士");
-    fireEvent.change(finalImagePrompt, { target: { value: "最终自定义正方形像素角色提示词" } });
-    expect(finalImagePrompt).toHaveValue("最终自定义正方形像素角色提示词");
-
-    const finalVideoPrompt = screen.getByLabelText(/最终视频提示词/i);
-    expect((finalVideoPrompt as HTMLTextAreaElement).value).toContain("循环精灵动画");
-
-    const videoBasePrompt = screen.getByLabelText(/视频基础提示词/i);
-    fireEvent.change(videoBasePrompt, { target: { value: "单个精灵，镜头锁定" } });
-    expect(videoBasePrompt).toHaveValue("单个精灵，镜头锁定");
-
-    const templatePrompt = screen.getByLabelText(/模板提示词/i);
-    fireEvent.change(templatePrompt, { target: { value: "正面奔跑循环" } });
-    expect(templatePrompt).toHaveValue("正面奔跑循环");
-
-    const actionPrompt = screen.getByLabelText(/动作提示词/i);
-    fireEvent.change(actionPrompt, { target: { value: "原地向前奔跑" } });
-    expect(actionPrompt).toHaveValue("原地向前奔跑");
-
-    fireEvent.change(finalVideoPrompt, { target: { value: "最终自定义 seedance 奔跑提示词" } });
-    expect(finalVideoPrompt).toHaveValue("最终自定义 seedance 奔跑提示词");
-  });
-
-  it("saves prompts and keys, then restores them when the module is reopened", () => {
-    openSpriteAnimator();
-
-    fireEvent.change(screen.getByLabelText(/^图片提示词$/i), {
-      target: { value: "已保存的像素角色提示词" }
+    fireEvent.change(screen.getByLabelText("图片提示词"), {
+      target: { value: "已保存的正面像素骑士" }
     });
     fireEvent.change(screen.getByLabelText(/最终视频提示词/i), {
-      target: { value: "已保存的最终视频提示词" }
-    });
-    fireEvent.change(screen.getByLabelText(/资产标识/i), {
-      target: { value: "saved_hero" }
-    });
-    fireEvent.change(screen.getByLabelText(/OpenRouter 密钥/i), {
-      target: { value: "sk-or-v1-saved-key" }
-    });
-    fireEvent.change(screen.getByLabelText(/公网资源地址/i), {
-      target: { value: "https://saved-tunnel.trycloudflare.com" }
+      target: { value: "已保存的正面奔跑循环提示词" }
     });
 
     fireEvent.click(screen.getByRole("button", { name: /保存当前配置/i }));
@@ -235,10 +197,8 @@ describe("App", () => {
     cleanup();
     openSpriteAnimator();
 
-    expect(screen.getByLabelText(/^图片提示词$/i)).toHaveValue("已保存的像素角色提示词");
-    expect(screen.getByLabelText(/最终视频提示词/i)).toHaveValue("已保存的最终视频提示词");
-    expect(screen.getByLabelText(/资产标识/i)).toHaveValue("saved_hero");
-    expect(screen.getByLabelText(/OpenRouter 密钥/i)).toHaveValue("sk-or-v1-saved-key");
-    expect(screen.getByLabelText(/公网资源地址/i)).toHaveValue("https://saved-tunnel.trycloudflare.com");
+    expect(screen.getByLabelText("图片提示词")).toHaveValue("已保存的正面像素骑士");
+    expect(screen.getByLabelText(/最终视频提示词/i)).toHaveValue("已保存的正面奔跑循环提示词");
+    expect(screen.getByText("https://darn-skittle-unwoven.ngrok-free.dev")).toBeInTheDocument();
   });
 });

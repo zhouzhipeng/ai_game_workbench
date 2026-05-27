@@ -17,7 +17,7 @@ export interface BuildVideoGenerationPayloadInput {
   model: string;
   prompt: string;
   firstFrameUrl: string;
-  durationSeconds: number;
+  durationSeconds?: number;
 }
 
 export interface OpenRouterClientOptions {
@@ -83,7 +83,7 @@ export function buildVideoGenerationPayload(input: BuildVideoGenerationPayloadIn
   return {
     model: input.model,
     prompt: input.prompt,
-    duration: input.durationSeconds,
+    duration: input.durationSeconds ?? getShortestVideoDurationSeconds(input.model),
     resolution: "720p" as const,
     aspect_ratio: "1:1" as const,
     generate_audio: false,
@@ -97,6 +97,18 @@ export function buildVideoGenerationPayload(input: BuildVideoGenerationPayloadIn
       }
     ]
   };
+}
+
+export function getShortestVideoDurationSeconds(model: string): number {
+  const durations: Record<string, number> = {
+    "bytedance/seedance-2.0": 4,
+    "bytedance/seedance-2.0-fast": 4,
+    "bytedance/seedance-1-5-pro": 4,
+    "kwaivgi/kling-v3.0-std": 3,
+    "kwaivgi/kling-v3.0-pro": 3,
+    "kwaivgi/kling-video-o1": 5
+  };
+  return durations[model] ?? 4;
 }
 
 export class OpenRouterClient {

@@ -29,7 +29,10 @@ export function createApp(options: CreateAppOptions) {
     openRouterApiKey: options.openRouterApiKey,
     publicAssetBaseUrl: options.publicAssetBaseUrl
   });
-  registerProcessingRoutes(app);
+  registerProcessingRoutes(app, {
+    ffmpegPath: options.ffmpegPath ?? "ffmpeg",
+    storageDir: options.storageDir
+  });
 
   return app;
 }

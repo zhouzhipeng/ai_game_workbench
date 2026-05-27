@@ -68,4 +68,21 @@ describe("buildVideoGenerationPayload", () => {
       ]
     });
   });
+
+  it("uses the shortest supported duration and fixed square 720p video defaults", () => {
+    const payload = buildVideoGenerationPayload({
+      model: "kwaivgi/kling-v3.0-std",
+      prompt: "正面奔跑循环",
+      firstFrameUrl: "https://example.com/first-frame.png"
+    });
+
+    expect(payload).toMatchObject({
+      duration: 3,
+      resolution: "720p",
+      aspect_ratio: "1:1",
+      generate_audio: false
+    });
+    expect(payload).not.toHaveProperty("size");
+    expect(payload).not.toHaveProperty("seed");
+  });
 });

@@ -1,6 +1,6 @@
 import type { ProjectState, SavedAnimationKeys } from "@ai-game-workbench/core";
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8787";
+export const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8787";
 
 export interface UploadedAsset {
   fileName: string;
@@ -13,11 +13,47 @@ export interface CreateVideoGenerationInput {
   model: string;
   prompt: string;
   firstFrameUrl: string;
-  durationSeconds: number;
+  durationSeconds?: number;
+}
+
+export interface CreateFirstFrameGenerationInput {
+  model: string;
+  prompt: string;
+  targetSize: number;
+  keyColor: string;
+  direction: string;
+  referenceImageDataUrl?: string;
+}
+
+export interface VideoJobStatus {
+  jobId: string;
+  status: string;
+  videoUrl?: string;
+  localVideoUrl?: string;
+  providerResponse?: unknown;
+}
+
+export interface ProcessFramesInput {
+  jobId: string;
+  frameCount: number;
+  keyColor: string;
+  tolerance: number;
+}
+
+export interface ProcessedFrame {
+  index: number;
+  url: string;
+}
+
+export interface ProcessFramesResult {
+  jobId: string;
+  frameCount: number;
+  frames: ProcessedFrame[];
 }
 
 export interface GenerationRequestOptions {
   openRouterApiKey?: string;
+  publicAssetBaseUrl?: string;
 }
 
 export interface UploadAssetOptions {
@@ -74,6 +110,21 @@ function buildUploadHeaders(options: UploadAssetOptions): Record<string, string>
   };
 }
 
+export async function createFirstFrameGeneration(
+  input: CreateFirstFrameGenerationInput,
+  options: GenerationRequestOptions = {}
+): Promise<unknown> {
+  const response = await fetch(`${API_BASE}/api/generation/first-frame`, {
+    method: "POST",
+    headers: buildGenerationHeaders(options),
+    body: JSON.stringify(input)
+  });
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, `首帧处理请求失败：${response.status}`));
+  }
+  return response.json() as Promise<unknown>;
+}
+
 export async function createVideoGeneration(
   input: CreateVideoGenerationInput,
   options: GenerationRequestOptions = {}
@@ -84,18 +135,44 @@ export async function createVideoGeneration(
     body: JSON.stringify(input)
   });
   if (!response.ok) {
-    let message = `视频生成请求失败：${response.status}`;
-    try {
-      const body = await response.json() as { error?: string };
-      if (body.error) {
-        message = body.error;
-      }
-    } catch {
-      // Keep the status-based message when the body is not JSON.
-    }
-    throw new Error(message);
+    throw new Error(await readErrorMessage(response, `视频生成请求失败：${response.status}`));
   }
   return response.json() as Promise<unknown>;
+}
+
+export async function getVideoGenerationStatus(
+  jobId: string,
+  options: GenerationRequestOptions = {}
+): Promise<VideoJobStatus> {
+  const response = await fetch(`${API_BASE}/api/generation/video/${encodeURIComponent(jobId)}`, {
+    method: "GET",
+    headers: buildGenerationHeaders(options)
+  });
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, `视频状态查询失败：${response.status}`));
+  }
+  return response.json() as Promise<VideoJobStatus>;
+}
+
+export async function processVideoFrames(input: ProcessFramesInput): Promise<ProcessFramesResult> {
+  const response = await fetch(`${API_BASE}/api/processing/frames`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(input)
+  });
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, `帧处理失败：${response.status}`));
+  }
+  return response.json() as Promise<ProcessFramesResult>;
+}
+
+export function toAbsoluteApiUrl(url: string): string {
+  if (/^https?:\/\//i.test(url) || url.startsWith("blob:") || url.startsWith("data:")) {
+    return url;
+  }
+  return `${API_BASE}${url.startsWith("/") ? "" : "/"}${url}`;
 }
 
 function buildGenerationHeaders(options: GenerationRequestOptions): Record<string, string> {
@@ -106,5 +183,18 @@ function buildGenerationHeaders(options: GenerationRequestOptions): Record<strin
   if (apiKey) {
     headers["x-openrouter-api-key"] = apiKey;
   }
+  const publicAssetBaseUrl = options.publicAssetBaseUrl?.trim();
+  if (publicAssetBaseUrl) {
+    headers["x-public-asset-base-url"] = publicAssetBaseUrl;
+  }
   return headers;
+}
+
+async function readErrorMessage(response: Response, fallback: string): Promise<string> {
+  try {
+    const body = await response.json() as { error?: string };
+    return body.error || fallback;
+  } catch {
+    return fallback;
+  }
 }

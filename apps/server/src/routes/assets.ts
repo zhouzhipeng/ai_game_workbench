@@ -11,7 +11,9 @@ type AssetRouteConfig = Pick<AppConfig, "storageDir" | "publicAssetBaseUrl" | "p
 
 export function registerAssetRoutes(app: FastifyInstance, config: AssetRouteConfig): void {
   const assetDir = join(config.storageDir, "assets");
+  const jobsDir = join(config.storageDir, "jobs");
   mkdirSync(assetDir, { recursive: true });
+  mkdirSync(jobsDir, { recursive: true });
 
   void app.register(multipart, {
     limits: {
@@ -22,6 +24,11 @@ export function registerAssetRoutes(app: FastifyInstance, config: AssetRouteConf
   void app.register(fastifyStatic, {
     root: assetDir,
     prefix: "/assets/"
+  });
+  void app.register(fastifyStatic, {
+    root: jobsDir,
+    prefix: "/jobs/",
+    decorateReply: false
   });
 
   app.post("/api/assets/first-frame", async (request, reply) => {
@@ -52,7 +59,7 @@ export function registerAssetRoutes(app: FastifyInstance, config: AssetRouteConf
   });
 }
 
-function resolvePublicAssetBaseUrl(
+export function resolvePublicAssetBaseUrl(
   headerValue: string | string[] | undefined,
   config: AssetRouteConfig
 ): { publicBase: string; error?: undefined } | { publicBase?: undefined; error: string } {
