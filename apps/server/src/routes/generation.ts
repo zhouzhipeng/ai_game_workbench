@@ -16,22 +16,38 @@ export function registerGenerationRoutes(app: FastifyInstance, config: AppConfig
   });
 
   app.post("/api/generation/first-frame", async (request, reply) => {
-    if (!config.openRouterApiKey) {
+    const apiKey = resolveOpenRouterApiKey(request, config);
+    if (!apiKey) {
       return reply.code(400).send({ error: "OPENROUTER_API_KEY is not configured" });
     }
-    const client = new OpenRouterClient({ apiKey: config.openRouterApiKey });
+    const client = new OpenRouterClient({ apiKey });
     return client.createImage(
       buildImageGenerationPayload(request.body as Parameters<typeof buildImageGenerationPayload>[0])
     );
   });
 
   app.post("/api/generation/video", async (request, reply) => {
-    if (!config.openRouterApiKey) {
+    const apiKey = resolveOpenRouterApiKey(request, config);
+    if (!apiKey) {
       return reply.code(400).send({ error: "OPENROUTER_API_KEY is not configured" });
     }
-    const client = new OpenRouterClient({ apiKey: config.openRouterApiKey });
+    const client = new OpenRouterClient({ apiKey });
     return client.createVideo(
       buildVideoGenerationPayload(request.body as Parameters<typeof buildVideoGenerationPayload>[0])
     );
   });
+}
+
+function resolveOpenRouterApiKey(
+  request: { headers: Record<string, string | string[] | undefined> },
+  config: AppConfig
+): string | undefined {
+  const headerValue = request.headers["x-openrouter-api-key"];
+  const requestKey = Array.isArray(headerValue) ? headerValue[0] : headerValue;
+  const trimmedRequestKey = requestKey?.trim();
+  if (trimmedRequestKey) {
+    return trimmedRequestKey;
+  }
+  const configKey = config.openRouterApiKey?.trim();
+  return configKey || undefined;
 }

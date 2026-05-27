@@ -172,6 +172,25 @@ h1 {
   flex-wrap: wrap;
 }
 
+.api-key-field {
+  min-width: min(320px, 100%);
+  color: #c7d0dd;
+  display: grid;
+  flex: 1 1 260px;
+  font-size: 12px;
+  gap: 5px;
+}
+
+.api-key-field input {
+  width: 100%;
+  min-height: 38px;
+  border: 1px solid #465166;
+  background: #0f141c;
+  color: #f4f0de;
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+
 .stage-grid {
   display: grid;
   grid-template-columns: minmax(420px, 1fr) minmax(360px, 430px);

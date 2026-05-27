@@ -87,6 +87,9 @@ describe("App", () => {
   it("submits a video generation request after the first frame is uploaded", async () => {
     openSpriteAnimator();
 
+    fireEvent.change(screen.getByLabelText(/OpenRouter 密钥/i), {
+      target: { value: "sk-or-v1-web-key" }
+    });
     const file = new File(["fake-image"], "hero-front.png", { type: "image/png" });
     fireEvent.change(screen.getByLabelText("上传首帧文件"), {
       target: { files: [file] }
@@ -99,7 +102,12 @@ describe("App", () => {
     const fetchMock = vi.mocked(fetch);
     const videoCall = fetchMock.mock.calls.find(([url]) => String(url).includes("/api/generation/video"));
     expect(videoCall).toBeDefined();
-    expect(videoCall?.[1]).toMatchObject({ method: "POST" });
+    expect(videoCall?.[1]).toMatchObject({
+      method: "POST",
+      headers: expect.objectContaining({
+        "x-openrouter-api-key": "sk-or-v1-web-key"
+      })
+    });
     expect(JSON.parse(String(videoCall?.[1]?.body))).toMatchObject({
       model: "bytedance/seedance-2.0",
       firstFrameUrl: "http://127.0.0.1:8787/assets/hero-front.png"
@@ -159,6 +167,9 @@ describe("App", () => {
     fireEvent.change(screen.getByLabelText(/资产标识/i), {
       target: { value: "saved_hero" }
     });
+    fireEvent.change(screen.getByLabelText(/OpenRouter 密钥/i), {
+      target: { value: "sk-or-v1-saved-key" }
+    });
 
     fireEvent.click(screen.getByRole("button", { name: /保存当前配置/i }));
     expect(screen.getByText(/配置已覆盖保存/)).toBeInTheDocument();
@@ -169,5 +180,6 @@ describe("App", () => {
     expect(screen.getByLabelText(/^图片提示词$/i)).toHaveValue("已保存的像素角色提示词");
     expect(screen.getByLabelText(/最终视频提示词/i)).toHaveValue("已保存的最终视频提示词");
     expect(screen.getByLabelText(/资产标识/i)).toHaveValue("saved_hero");
+    expect(screen.getByLabelText(/OpenRouter 密钥/i)).toHaveValue("sk-or-v1-saved-key");
   });
 });

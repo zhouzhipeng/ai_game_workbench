@@ -22,6 +22,7 @@ interface MediaPreview {
 }
 
 interface SpriteAnimatorDraft {
+  openRouterApiKey: string;
   assetKey: string;
   animationKey: string;
   fps: number;
@@ -52,6 +53,7 @@ const DEFAULT_VIDEO_BASE_PROMPT =
 
 export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
   const savedDraft = loadDraft(defaultKeys);
+  const [openRouterApiKey, setOpenRouterApiKey] = useState(savedDraft.openRouterApiKey);
   const [assetKey, setAssetKey] = useState(savedDraft.assetKey);
   const [animationKey, setAnimationKey] = useState(savedDraft.animationKey);
   const [fps, setFps] = useState(savedDraft.fps);
@@ -186,6 +188,8 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
         prompt: finalVideoPrompt,
         firstFrameUrl: firstFramePublicUrl,
         durationSeconds: 4
+      }, {
+        openRouterApiKey
       });
       const videoUrl = extractVideoUrl(response);
       if (videoUrl) {
@@ -212,6 +216,7 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
 
   const handleSaveDraft = () => {
     const draft: SpriteAnimatorDraft = {
+      openRouterApiKey,
       assetKey,
       animationKey,
       fps,
@@ -232,7 +237,7 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
       actionTemplate
     };
     localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(draft));
-    setStatus("配置已覆盖保存，重新进入模块会自动恢复。");
+    setStatus("配置已覆盖保存，OpenRouter 密钥已保存，重新进入模块会自动恢复。");
   };
 
   return (
@@ -257,6 +262,17 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
             <h1>AI 精灵动画生成</h1>
           </div>
           <div className="toolbar">
+            <label className="api-key-field">
+              OpenRouter 密钥
+              <input
+                aria-label="OpenRouter 密钥"
+                autoComplete="off"
+                placeholder="sk-or-v1-..."
+                type="password"
+                value={openRouterApiKey}
+                onChange={(event) => setOpenRouterApiKey(event.target.value)}
+              />
+            </label>
             <button className="tool-button" type="button" onClick={handleSaveDraft}>
               <Save size={16} /> 保存当前配置
             </button>
@@ -446,6 +462,7 @@ function buildDefaultDraft(defaultKeys: SavedAnimationKeys): SpriteAnimatorDraft
     keyColor: "#00ff00"
   });
   return {
+    openRouterApiKey: "",
     assetKey: defaultKeys.assetKey,
     animationKey: defaultKeys.animationKey,
     fps: defaultKeys.fps,

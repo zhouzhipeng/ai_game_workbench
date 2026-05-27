@@ -16,6 +16,10 @@ export interface CreateVideoGenerationInput {
   durationSeconds: number;
 }
 
+export interface GenerationRequestOptions {
+  openRouterApiKey?: string;
+}
+
 export async function getProject(projectId = "default"): Promise<ProjectState> {
   const response = await fetch(`${API_BASE}/api/projects/${encodeURIComponent(projectId)}`);
   if (!response.ok) {
@@ -52,10 +56,13 @@ export async function uploadFirstFrameAsset(file: File): Promise<UploadedAsset> 
   return response.json() as Promise<UploadedAsset>;
 }
 
-export async function createVideoGeneration(input: CreateVideoGenerationInput): Promise<unknown> {
+export async function createVideoGeneration(
+  input: CreateVideoGenerationInput,
+  options: GenerationRequestOptions = {}
+): Promise<unknown> {
   const response = await fetch(`${API_BASE}/api/generation/video`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: buildGenerationHeaders(options),
     body: JSON.stringify(input)
   });
   if (!response.ok) {
@@ -71,4 +78,15 @@ export async function createVideoGeneration(input: CreateVideoGenerationInput): 
     throw new Error(message);
   }
   return response.json() as Promise<unknown>;
+}
+
+function buildGenerationHeaders(options: GenerationRequestOptions): Record<string, string> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json"
+  };
+  const apiKey = options.openRouterApiKey?.trim();
+  if (apiKey) {
+    headers["x-openrouter-api-key"] = apiKey;
+  }
+  return headers;
 }
