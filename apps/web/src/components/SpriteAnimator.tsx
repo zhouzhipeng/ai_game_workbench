@@ -23,6 +23,7 @@ interface MediaPreview {
 
 interface SpriteAnimatorDraft {
   openRouterApiKey: string;
+  publicAssetBaseUrl: string;
   firstFramePublicUrl: string;
   assetKey: string;
   animationKey: string;
@@ -55,6 +56,7 @@ const DEFAULT_VIDEO_BASE_PROMPT =
 export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
   const savedDraft = loadDraft(defaultKeys);
   const [openRouterApiKey, setOpenRouterApiKey] = useState(savedDraft.openRouterApiKey);
+  const [publicAssetBaseUrl, setPublicAssetBaseUrl] = useState(savedDraft.publicAssetBaseUrl);
   const [assetKey, setAssetKey] = useState(savedDraft.assetKey);
   const [animationKey, setAnimationKey] = useState(savedDraft.animationKey);
   const [fps, setFps] = useState(savedDraft.fps);
@@ -146,7 +148,7 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
       };
     });
     setStatus(`已载入首帧：${file.name}，正在上传到后端。`);
-    void uploadFirstFrameAsset(file)
+    void uploadFirstFrameAsset(file, { publicAssetBaseUrl })
       .then((asset) => {
         setFirstFramePublicUrl(asset.publicUrl);
         setFirstFramePreview((current) => {
@@ -225,6 +227,7 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
   const handleSaveDraft = () => {
     const draft: SpriteAnimatorDraft = {
       openRouterApiKey,
+      publicAssetBaseUrl,
       firstFramePublicUrl,
       assetKey,
       animationKey,
@@ -246,7 +249,7 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
       actionTemplate
     };
     localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(draft));
-    setStatus("配置已覆盖保存，OpenRouter 密钥已保存，重新进入模块会自动恢复。");
+    setStatus("配置已覆盖保存，OpenRouter 密钥和公网资源地址已保存，重新进入模块会自动恢复。");
   };
 
   return (
@@ -280,6 +283,17 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
                 type="password"
                 value={openRouterApiKey}
                 onChange={(event) => setOpenRouterApiKey(event.target.value)}
+              />
+            </label>
+            <label className="api-key-field">
+              公网资源地址
+              <input
+                aria-label="公网资源地址"
+                autoComplete="off"
+                placeholder="https://xxx.trycloudflare.com"
+                type="url"
+                value={publicAssetBaseUrl}
+                onChange={(event) => setPublicAssetBaseUrl(event.target.value)}
               />
             </label>
             <button className="tool-button" type="button" onClick={handleSaveDraft}>
@@ -474,6 +488,7 @@ function buildDefaultDraft(defaultKeys: SavedAnimationKeys): SpriteAnimatorDraft
   });
   return {
     openRouterApiKey: "",
+    publicAssetBaseUrl: "",
     firstFramePublicUrl: "",
     assetKey: defaultKeys.assetKey,
     animationKey: defaultKeys.animationKey,

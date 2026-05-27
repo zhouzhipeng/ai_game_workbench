@@ -20,6 +20,10 @@ export interface GenerationRequestOptions {
   openRouterApiKey?: string;
 }
 
+export interface UploadAssetOptions {
+  publicAssetBaseUrl?: string;
+}
+
 export async function getProject(projectId = "default"): Promise<ProjectState> {
   const response = await fetch(`${API_BASE}/api/projects/${encodeURIComponent(projectId)}`);
   if (!response.ok) {
@@ -43,17 +47,31 @@ export async function saveProjectKeys(
   return response.json() as Promise<ProjectState>;
 }
 
-export async function uploadFirstFrameAsset(file: File): Promise<UploadedAsset> {
+export async function uploadFirstFrameAsset(
+  file: File,
+  options: UploadAssetOptions = {}
+): Promise<UploadedAsset> {
   const formData = new FormData();
   formData.append("file", file);
   const response = await fetch(`${API_BASE}/api/assets/first-frame`, {
     method: "POST",
+    headers: buildUploadHeaders(options),
     body: formData
   });
   if (!response.ok) {
     throw new Error(`上传首帧失败：${response.status}`);
   }
   return response.json() as Promise<UploadedAsset>;
+}
+
+function buildUploadHeaders(options: UploadAssetOptions): Record<string, string> | undefined {
+  const publicAssetBaseUrl = options.publicAssetBaseUrl?.trim();
+  if (!publicAssetBaseUrl) {
+    return undefined;
+  }
+  return {
+    "x-public-asset-base-url": publicAssetBaseUrl
+  };
 }
 
 export async function createVideoGeneration(

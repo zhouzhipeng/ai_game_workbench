@@ -92,6 +92,9 @@ describe("App", () => {
     fireEvent.change(screen.getByLabelText(/OpenRouter 密钥/i), {
       target: { value: "sk-or-v1-web-key" }
     });
+    fireEvent.change(screen.getByLabelText(/公网资源地址/i), {
+      target: { value: "https://asset-tunnel.trycloudflare.com" }
+    });
     const file = new File(["fake-image"], "hero-front.png", { type: "image/png" });
     fireEvent.change(screen.getByLabelText("上传首帧文件"), {
       target: { files: [file] }
@@ -103,6 +106,12 @@ describe("App", () => {
 
     await waitFor(() => expect(screen.getAllByText(/视频任务已提交/).length).toBeGreaterThan(0));
     const fetchMock = vi.mocked(fetch);
+    const uploadCall = fetchMock.mock.calls.find(([url]) => String(url).includes("/api/assets/first-frame"));
+    expect(uploadCall?.[1]).toMatchObject({
+      headers: expect.objectContaining({
+        "x-public-asset-base-url": "https://asset-tunnel.trycloudflare.com"
+      })
+    });
     const videoCall = fetchMock.mock.calls.find(([url]) => String(url).includes("/api/generation/video"));
     expect(videoCall).toBeDefined();
     expect(videoCall?.[1]).toMatchObject({
@@ -216,6 +225,9 @@ describe("App", () => {
     fireEvent.change(screen.getByLabelText(/OpenRouter 密钥/i), {
       target: { value: "sk-or-v1-saved-key" }
     });
+    fireEvent.change(screen.getByLabelText(/公网资源地址/i), {
+      target: { value: "https://saved-tunnel.trycloudflare.com" }
+    });
 
     fireEvent.click(screen.getByRole("button", { name: /保存当前配置/i }));
     expect(screen.getByText(/配置已覆盖保存/)).toBeInTheDocument();
@@ -227,5 +239,6 @@ describe("App", () => {
     expect(screen.getByLabelText(/最终视频提示词/i)).toHaveValue("已保存的最终视频提示词");
     expect(screen.getByLabelText(/资产标识/i)).toHaveValue("saved_hero");
     expect(screen.getByLabelText(/OpenRouter 密钥/i)).toHaveValue("sk-or-v1-saved-key");
+    expect(screen.getByLabelText(/公网资源地址/i)).toHaveValue("https://saved-tunnel.trycloudflare.com");
   });
 });

@@ -47,4 +47,64 @@ describe("asset routes", () => {
     expect(body.publicUrl).toMatch(/^http:\/\/127\.0\.0\.1:8787\/assets\/.+\.png$/);
     expect(await readFile(body.localPath, "utf8")).toBe("fake-png-bytes");
   });
+
+  it("uses a tunnel base URL from the upload request", async () => {
+    const app = createApp({
+      storageDir: tempDir,
+      port: 8787
+    });
+    const boundary = "----ai-game-workbench-test";
+    const payload = [
+      `--${boundary}`,
+      'Content-Disposition: form-data; name="file"; filename="hero.png"',
+      "Content-Type: image/png",
+      "",
+      "fake-png-bytes",
+      `--${boundary}--`,
+      ""
+    ].join("\r\n");
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/assets/first-frame",
+      headers: {
+        "content-type": `multipart/form-data; boundary=${boundary}`,
+        "x-public-asset-base-url": "https://asset-tunnel.trycloudflare.com"
+      },
+      payload
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().publicUrl).toMatch(/^https:\/\/asset-tunnel\.trycloudflare\.com\/assets\/.+\.png$/);
+  });
+
+  it("rejects non-HTTPS tunnel base URLs from the upload request", async () => {
+    const app = createApp({
+      storageDir: tempDir,
+      port: 8787
+    });
+    const boundary = "----ai-game-workbench-test";
+    const payload = [
+      `--${boundary}`,
+      'Content-Disposition: form-data; name="file"; filename="hero.png"',
+      "Content-Type: image/png",
+      "",
+      "fake-png-bytes",
+      `--${boundary}--`,
+      ""
+    ].join("\r\n");
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/assets/first-frame",
+      headers: {
+        "content-type": `multipart/form-data; boundary=${boundary}`,
+        "x-public-asset-base-url": "http://asset-tunnel.local"
+      },
+      payload
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json().error).toContain("HTTPS");
+  });
 });

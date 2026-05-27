@@ -25,6 +25,10 @@ export function registerAssetRoutes(app: FastifyInstance, config: AssetRouteConf
   });
 
   app.post("/api/assets/first-frame", async (request, reply) => {
+    const publicBaseResult = resolvePublicAssetBaseUrl(request.headers["x-public-asset-base-url"], config);
+    if ("error" in publicBaseResult) {
+      return reply.code(400).send({ error: publicBaseResult.error });
+    }
     const file = await request.file();
     if (!file) {
       return reply.code(400).send({ error: "file is required" });
@@ -39,14 +43,50 @@ export function registerAssetRoutes(app: FastifyInstance, config: AssetRouteConf
     await mkdir(assetDir, { recursive: true });
     await writeFile(localPath, await file.toBuffer());
 
-    const publicBase = config.publicAssetBaseUrl ?? `http://127.0.0.1:${config.port}/assets`;
     return {
       fileName: file.filename,
       storedName,
       localPath,
-      publicUrl: `${publicBase.replace(/\/$/, "")}/${storedName}`
+      publicUrl: `${publicBaseResult.publicBase.replace(/\/$/, "")}/${storedName}`
     };
   });
+}
+
+function resolvePublicAssetBaseUrl(
+  headerValue: string | string[] | undefined,
+  config: AssetRouteConfig
+): { publicBase: string; error?: undefined } | { publicBase?: undefined; error: string } {
+  const requestValue = Array.isArray(headerValue) ? headerValue[0] : headerValue;
+  const requestBase = requestValue?.trim();
+  if (requestBase) {
+    const normalized = normalizePublicAssetBaseUrl(requestBase);
+    if (!normalized) {
+      return { error: "公网资源地址必须是有效 HTTPS URL。" };
+    }
+    if (!normalized.startsWith("https://")) {
+      return { error: "公网资源地址必须使用 HTTPS，才能被 OpenRouter 视频模型访问。" };
+    }
+    return { publicBase: normalized };
+  }
+
+  if (config.publicAssetBaseUrl) {
+    return { publicBase: normalizePublicAssetBaseUrl(config.publicAssetBaseUrl) ?? config.publicAssetBaseUrl.replace(/\/$/, "") };
+  }
+  return { publicBase: `http://127.0.0.1:${config.port}/assets` };
+}
+
+function normalizePublicAssetBaseUrl(value: string): string | undefined {
+  try {
+    const url = new URL(value);
+    if (url.pathname === "" || url.pathname === "/") {
+      url.pathname = "/assets";
+    }
+    url.search = "";
+    url.hash = "";
+    return url.toString().replace(/\/$/, "");
+  } catch {
+    return undefined;
+  }
 }
 
 function getImageExtension(filename: string, mimeType: string): string {
