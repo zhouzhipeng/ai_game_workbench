@@ -23,6 +23,7 @@ interface MediaPreview {
 
 interface SpriteAnimatorDraft {
   openRouterApiKey: string;
+  firstFramePublicUrl: string;
   assetKey: string;
   animationKey: string;
   fps: number;
@@ -73,7 +74,7 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
   const [finalVideoPrompt, setFinalVideoPrompt] = useState(savedDraft.finalVideoPrompt);
   const [finalVideoPromptTouched, setFinalVideoPromptTouched] = useState(savedDraft.finalVideoPromptTouched);
   const [firstFramePreview, setFirstFramePreview] = useState<MediaPreview | null>(null);
-  const [firstFramePublicUrl, setFirstFramePublicUrl] = useState<string | null>(null);
+  const [firstFramePublicUrl, setFirstFramePublicUrl] = useState(savedDraft.firstFramePublicUrl);
   const [videoPreview, setVideoPreview] = useState<MediaPreview | null>(null);
   const [exportPreview] = useState<MediaPreview | null>(null);
   const [videoJobMessage, setVideoJobMessage] = useState("等待视频生成结果");
@@ -134,7 +135,7 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
       return;
     }
     const previewUrl = URL.createObjectURL(file);
-    setFirstFramePublicUrl(null);
+    setFirstFramePublicUrl("");
     setFirstFramePreview((current) => {
       if (current) {
         URL.revokeObjectURL(current.url);
@@ -166,14 +167,21 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
   };
 
   const handleGenerateAnimation = async () => {
-    if (!firstFramePreview) {
+    const usableFirstFrameUrl = firstFramePublicUrl.trim();
+    if (!firstFramePreview && !usableFirstFrameUrl) {
       const message = "请先上传或生成首帧，再生成动画。";
       setVideoJobMessage(message);
       setStatus(message);
       return;
     }
-    if (!firstFramePublicUrl) {
-      const message = "首帧还在上传到后端，上传完成后再点生成动画。";
+    if (!usableFirstFrameUrl) {
+      const message = "首帧还在上传到后端，或缺少 OpenRouter 可访问的首帧公网 URL。";
+      setVideoJobMessage(message);
+      setStatus(message);
+      return;
+    }
+    if (!isPublicHttpsUrl(usableFirstFrameUrl)) {
+      const message = "OpenRouter 视频首帧需要公网 HTTPS 图片 URL；本机 127.0.0.1 或 HTTP 地址只能用于网页预览。";
       setVideoJobMessage(message);
       setStatus(message);
       return;
@@ -186,7 +194,7 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
       const response = await createVideoGeneration({
         model: "bytedance/seedance-2.0",
         prompt: finalVideoPrompt,
-        firstFrameUrl: firstFramePublicUrl,
+        firstFrameUrl: usableFirstFrameUrl,
         durationSeconds: 4
       }, {
         openRouterApiKey
@@ -217,6 +225,7 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
   const handleSaveDraft = () => {
     const draft: SpriteAnimatorDraft = {
       openRouterApiKey,
+      firstFramePublicUrl,
       assetKey,
       animationKey,
       fps,
@@ -321,7 +330,9 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
               imagePrompt={imagePrompt}
               imagePromptInstructions={imagePromptInstructions}
               finalImagePrompt={finalImagePrompt}
+              firstFramePublicUrl={firstFramePublicUrl}
               onFirstFrameUpload={handleFirstFrameUpload}
+              onFirstFramePublicUrlChange={setFirstFramePublicUrl}
               onImageGenerationSizeChange={handleImageGenerationSizeChange}
               onDirectionChange={(value) => {
                 setDirection(value);
@@ -463,6 +474,7 @@ function buildDefaultDraft(defaultKeys: SavedAnimationKeys): SpriteAnimatorDraft
   });
   return {
     openRouterApiKey: "",
+    firstFramePublicUrl: "",
     assetKey: defaultKeys.assetKey,
     animationKey: defaultKeys.animationKey,
     fps: defaultKeys.fps,
@@ -533,4 +545,25 @@ function extractVideoUrl(response: unknown): string | undefined {
     }
   }
   return undefined;
+}
+
+function isPublicHttpsUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "https:") {
+      return false;
+    }
+    const host = url.hostname.toLowerCase();
+    if (host === "localhost" || host === "::1" || host.startsWith("127.")) {
+      return false;
+    }
+    if (host.startsWith("10.") || host.startsWith("192.168.")) {
+      return false;
+    }
+    const parts = host.split(".").map((part) => Number(part));
+    const [first, second] = parts;
+    return !(parts.length === 4 && first === 172 && second !== undefined && second >= 16 && second <= 31);
+  } catch {
+    return false;
+  }
 }

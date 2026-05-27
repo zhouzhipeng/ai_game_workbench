@@ -26,6 +26,18 @@ export interface OpenRouterClientOptions {
   fetchImpl?: typeof fetch;
 }
 
+export class OpenRouterError extends Error {
+  readonly statusCode: number;
+  readonly responseBody: string;
+
+  constructor(statusCode: number, responseBody: string, message: string) {
+    super(message);
+    this.name = "OpenRouterError";
+    this.statusCode = statusCode;
+    this.responseBody = responseBody;
+  }
+}
+
 export function buildImageGenerationPayload(input: BuildImageGenerationPayloadInput) {
   const text = [
     "生成一张用于2D游戏精灵动画的正方形像素风首帧。",
@@ -132,9 +144,39 @@ export class OpenRouterClient {
 
 async function parseJsonResponse(response: Response): Promise<unknown> {
   const body = await response.text();
-  const parsed = body.length > 0 ? JSON.parse(body) : null;
+  const parsed = parseJsonBody(body);
   if (!response.ok) {
-    throw new Error(`OpenRouter request failed with ${response.status}: ${body}`);
+    throw new OpenRouterError(response.status, body, extractOpenRouterErrorMessage(response.status, parsed, body));
   }
   return parsed;
+}
+
+function parseJsonBody(body: string): unknown {
+  if (body.length === 0) {
+    return null;
+  }
+  try {
+    return JSON.parse(body);
+  } catch {
+    return body;
+  }
+}
+
+function extractOpenRouterErrorMessage(statusCode: number, parsed: unknown, rawBody: string): string {
+  if (parsed && typeof parsed === "object") {
+    const record = parsed as Record<string, unknown>;
+    if (typeof record.error === "string") {
+      return `OpenRouter 请求失败（${statusCode}）：${record.error}`;
+    }
+    if (record.error && typeof record.error === "object") {
+      const errorRecord = record.error as Record<string, unknown>;
+      if (typeof errorRecord.message === "string") {
+        return `OpenRouter 请求失败（${statusCode}）：${errorRecord.message}`;
+      }
+    }
+    if (typeof record.message === "string") {
+      return `OpenRouter 请求失败（${statusCode}）：${record.message}`;
+    }
+  }
+  return `OpenRouter 请求失败（${statusCode}）：${rawBody || "空响应"}`;
 }

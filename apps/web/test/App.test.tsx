@@ -4,10 +4,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../src/App";
 
 beforeEach(() => {
-  vi.stubGlobal("URL", {
-    createObjectURL: vi.fn(() => "blob:first-frame-preview"),
-    revokeObjectURL: vi.fn()
-  });
+  const NativeURL = globalThis.URL;
+  class TestURL extends NativeURL {
+    static createObjectURL = vi.fn(() => "blob:first-frame-preview");
+    static revokeObjectURL = vi.fn();
+  }
+  vi.stubGlobal("URL", TestURL);
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string) => {
@@ -16,7 +18,7 @@ beforeEach(() => {
           ok: true,
           json: async () => ({
             fileName: "hero-front.png",
-            publicUrl: "http://127.0.0.1:8787/assets/hero-front.png"
+            publicUrl: "https://assets.example.com/hero-front.png"
           })
         };
       }
@@ -95,6 +97,7 @@ describe("App", () => {
       target: { files: [file] }
     });
     await screen.findByText(/首帧已上传/);
+    await waitFor(() => expect(screen.getByLabelText(/首帧公网 URL/i)).toHaveValue("https://assets.example.com/hero-front.png"));
 
     fireEvent.click(screen.getByRole("button", { name: /生成动画/i }));
 
@@ -110,8 +113,51 @@ describe("App", () => {
     });
     expect(JSON.parse(String(videoCall?.[1]?.body))).toMatchObject({
       model: "bytedance/seedance-2.0",
-      firstFrameUrl: "http://127.0.0.1:8787/assets/hero-front.png"
+      firstFrameUrl: "https://assets.example.com/hero-front.png"
     });
+  });
+
+  it("shows backend video generation errors clearly", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (url.includes("/api/assets/first-frame")) {
+          return {
+            ok: true,
+            json: async () => ({
+              fileName: "hero-front.png",
+              publicUrl: "http://127.0.0.1:8787/assets/hero-front.png"
+            })
+          };
+        }
+        if (url.includes("/api/generation/video")) {
+          return {
+            ok: false,
+            status: 400,
+            json: async () => ({ error: "OpenRouter 视频首帧需要公网 HTTPS 图片 URL" })
+          };
+        }
+        return {
+          ok: false,
+          status: 404,
+          json: async () => ({ error: "not found" })
+        };
+      })
+    );
+    openSpriteAnimator();
+
+    fireEvent.change(screen.getByLabelText(/OpenRouter 密钥/i), {
+      target: { value: "sk-or-v1-web-key" }
+    });
+    const file = new File(["fake-image"], "hero-front.png", { type: "image/png" });
+    fireEvent.change(screen.getByLabelText("上传首帧文件"), {
+      target: { files: [file] }
+    });
+    await screen.findByText(/首帧已上传/);
+
+    fireEvent.click(screen.getByRole("button", { name: /生成动画/i }));
+
+    await waitFor(() => expect(screen.getAllByText(/公网 HTTPS 图片 URL/).length).toBeGreaterThan(0));
   });
 
   it("exposes Chinese generation prompts and custom image size as editable controls", () => {

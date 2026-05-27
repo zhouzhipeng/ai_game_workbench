@@ -14,7 +14,9 @@ interface FirstFramePanelProps {
   imagePrompt: string;
   imagePromptInstructions: string;
   finalImagePrompt: string;
+  firstFramePublicUrl: string;
   onFirstFrameUpload: (file: File) => void;
+  onFirstFramePublicUrlChange: (url: string) => void;
   onImageGenerationSizeChange: (size: number) => void;
   onDirectionChange: (direction: CharacterDirection) => void;
   onImagePromptChange: (prompt: string) => void;
@@ -31,7 +33,9 @@ export function FirstFramePanel({
   imagePrompt,
   imagePromptInstructions,
   finalImagePrompt,
+  firstFramePublicUrl,
   onFirstFrameUpload,
+  onFirstFramePublicUrlChange,
   onImageGenerationSizeChange,
   onDirectionChange,
   onImagePromptChange,
@@ -91,6 +95,15 @@ export function FirstFramePanel({
         />
       </label>
       <label className="field">
+        首帧公网 URL
+        <input
+          type="url"
+          placeholder="https://your-domain.example/first-frame.png"
+          value={firstFramePublicUrl}
+          onChange={(event) => onFirstFramePublicUrlChange(event.target.value)}
+        />
+      </label>
+      <label className="field">
         图片提示词
         <textarea
           value={imagePrompt}
@@ -115,7 +128,7 @@ export function FirstFramePanel({
         />
       </label>
       <div className="hint-line">
-        导出目标 {targetSize}px，生成首帧 {imageGenerationSize}px，抠图背景 {keyColor}
+        导出目标 {targetSize}px，生成首帧 {imageGenerationSize}px，抠图背景 {keyColor}。OpenRouter 视频首帧需要公网 HTTPS URL。
       </div>
     </section>
   );
