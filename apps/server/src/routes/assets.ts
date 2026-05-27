@@ -54,6 +54,7 @@ export function registerAssetRoutes(app: FastifyInstance, config: AssetRouteConf
       fileName: file.filename,
       storedName,
       localPath,
+      localUrl: `/assets/${storedName}`,
       publicUrl: `${publicBaseResult.publicBase.replace(/\/$/, "")}/${storedName}`
     };
   });

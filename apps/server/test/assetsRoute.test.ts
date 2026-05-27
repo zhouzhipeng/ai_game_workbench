@@ -44,6 +44,7 @@ describe("asset routes", () => {
     expect(response.statusCode).toBe(200);
     const body = response.json();
     expect(body.fileName).toBe("hero.png");
+    expect(body.localUrl).toMatch(/^\/assets\/.+\.png$/);
     expect(body.publicUrl).toMatch(/^http:\/\/127\.0\.0\.1:8787\/assets\/.+\.png$/);
     expect(await readFile(body.localPath, "utf8")).toBe("fake-png-bytes");
   });
@@ -75,6 +76,7 @@ describe("asset routes", () => {
     });
 
     expect(response.statusCode).toBe(200);
+    expect(response.json().localUrl).toMatch(/^\/assets\/.+\.png$/);
     expect(response.json().publicUrl).toMatch(/^https:\/\/asset-tunnel\.trycloudflare\.com\/assets\/.+\.png$/);
   });
 

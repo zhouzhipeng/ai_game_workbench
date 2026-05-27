@@ -18,13 +18,15 @@ beforeEach(() => {
     if (url.includes("/api/assets/first-frame")) {
       return jsonResponse({
         fileName: "hero-raw.png",
+        localUrl: "/assets/hero-raw.png",
         publicUrl: "https://assets.example.com/hero-raw.png"
       });
     }
     if (url.includes("/api/generation/first-frame")) {
       return jsonResponse({
         fileName: "hero-processed.png",
-        imageUrl: "https://assets.example.com/hero-processed.png",
+        imageUrl: "/assets/hero-processed.png",
+        localUrl: "/assets/hero-processed.png",
         publicUrl: "https://assets.example.com/hero-processed.png"
       });
     }
@@ -108,7 +110,10 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: /处理首帧/i }));
 
     await screen.findByAltText("首帧输出预览");
-    expect(screen.getByAltText("视频输入预览")).toHaveAttribute("src", "https://assets.example.com/hero-processed.png");
+    expect(screen.getByAltText("视频输入预览")).toHaveAttribute(
+      "src",
+      "http://127.0.0.1:8787/assets/hero-processed.png"
+    );
 
     fireEvent.change(screen.getByLabelText(/视频模型/i), {
       target: { value: "kwaivgi/kling-v3.0-std" }
@@ -179,6 +184,21 @@ describe("App", () => {
     expect(JSON.parse(String(videoCall?.[1]?.body))).toMatchObject({
       firstFrameUrl: "https://assets.example.com/hero-raw.png"
     });
+  });
+
+  it("shows a controlled fallback instead of oversized alt text when an image preview fails", async () => {
+    openSpriteAnimator();
+
+    fireEvent.change(screen.getByLabelText(/OpenRouter 密钥/i), {
+      target: { value: "sk-or-v1-web-key" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: /处理首帧/i }));
+
+    const videoInput = await screen.findByAltText("视频输入预览");
+    fireEvent.error(videoInput);
+
+    expect(screen.queryByAltText("视频输入预览")).not.toBeInTheDocument();
+    expect(screen.getAllByText("预览加载失败").length).toBeGreaterThan(0);
   });
 
   it("saves edited Chinese prompts and restores them when the module reopens", () => {

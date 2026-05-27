@@ -66,6 +66,8 @@ describe("generation route", () => {
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject({
       fileName: "generated-first-frame.png",
+      imageUrl: expect.stringMatching(/^\/assets\/.+\.png$/),
+      localUrl: expect.stringMatching(/^\/assets\/.+\.png$/),
       publicUrl: expect.stringMatching(/^https:\/\/assets\.example\.com\/assets\/.+\.png$/)
     });
     expect(existsSync(response.json().localPath)).toBe(true);

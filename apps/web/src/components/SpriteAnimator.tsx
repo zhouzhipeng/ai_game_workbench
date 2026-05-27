@@ -265,7 +265,7 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
       }
       const preview = {
         name: extractFileName(response) ?? "processed-first-frame.png",
-        url: imageUrl,
+        url: toAbsoluteApiUrl(imageUrl),
         publicUrl
       };
       setFirstFrameOutputPreview(preview);
@@ -769,10 +769,17 @@ function MediaPane({ title, children }: { title: string; children: React.ReactNo
 }
 
 function ImagePreview({ alt, preview, emptyLabel }: { alt: string; preview: MediaPreview | null; emptyLabel: string }) {
+  const [failedUrl, setFailedUrl] = useState<string | undefined>(undefined);
+  useEffect(() => {
+    setFailedUrl(undefined);
+  }, [preview?.url]);
   if (!preview) {
     return <EmptyMedia label={emptyLabel} />;
   }
-  return <img alt={alt} src={preview.url} />;
+  if (failedUrl === preview.url) {
+    return <EmptyMedia label="预览加载失败" />;
+  }
+  return <img alt={alt} src={preview.url} onError={() => setFailedUrl(preview.url)} />;
 }
 
 function VideoPreview({ label, preview, emptyLabel }: { label: string; preview: MediaPreview | null; emptyLabel: string }) {

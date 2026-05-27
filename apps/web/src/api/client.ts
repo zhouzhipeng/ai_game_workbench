@@ -6,6 +6,7 @@ export interface UploadedAsset {
   fileName: string;
   storedName: string;
   localPath: string;
+  localUrl?: string;
   publicUrl: string;
 }
 

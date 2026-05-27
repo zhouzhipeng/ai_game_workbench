@@ -102,7 +102,8 @@ async function storeGeneratedFirstFrame(
     fileName: "generated-first-frame.png",
     storedName,
     localPath,
-    imageUrl: `${publicBase.replace(/\/$/, "")}/${storedName}`,
+    imageUrl: `/assets/${storedName}`,
+    localUrl: `/assets/${storedName}`,
     publicUrl: `${publicBase.replace(/\/$/, "")}/${storedName}`,
     providerResponse
   };
