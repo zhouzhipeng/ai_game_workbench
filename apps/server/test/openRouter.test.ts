@@ -29,7 +29,7 @@ describe("buildImageGenerationPayload", () => {
       }),
       expect.objectContaining({
         type: "image_url",
-        imageUrl: {
+        image_url: {
           url: "data:image/webp;base64,abc123"
         }
       })

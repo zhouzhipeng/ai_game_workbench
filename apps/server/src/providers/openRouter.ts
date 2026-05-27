@@ -54,7 +54,7 @@ export function buildImageGenerationPayload(input: BuildImageGenerationPayloadIn
         { type: "text" as const, text },
         {
           type: "image_url" as const,
-          imageUrl: {
+          image_url: {
             url: input.referenceImageDataUrl
           }
         }
