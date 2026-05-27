@@ -2,7 +2,7 @@ import { createApp } from "./app";
 import { loadConfig } from "./config";
 
 const config = loadConfig();
-const app = createApp({ storageDir: config.storageDir });
+const app = createApp(config);
 
 await app.listen({ port: config.port, host: "127.0.0.1" });
 

@@ -2,6 +2,20 @@ import type { ProjectState, SavedAnimationKeys } from "@ai-game-workbench/core";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8787";
 
+export interface UploadedAsset {
+  fileName: string;
+  storedName: string;
+  localPath: string;
+  publicUrl: string;
+}
+
+export interface CreateVideoGenerationInput {
+  model: string;
+  prompt: string;
+  firstFrameUrl: string;
+  durationSeconds: number;
+}
+
 export async function getProject(projectId = "default"): Promise<ProjectState> {
   const response = await fetch(`${API_BASE}/api/projects/${encodeURIComponent(projectId)}`);
   if (!response.ok) {
@@ -23,4 +37,38 @@ export async function saveProjectKeys(
     throw new Error(`Failed to save project keys: ${response.status}`);
   }
   return response.json() as Promise<ProjectState>;
+}
+
+export async function uploadFirstFrameAsset(file: File): Promise<UploadedAsset> {
+  const formData = new FormData();
+  formData.append("file", file);
+  const response = await fetch(`${API_BASE}/api/assets/first-frame`, {
+    method: "POST",
+    body: formData
+  });
+  if (!response.ok) {
+    throw new Error(`上传首帧失败：${response.status}`);
+  }
+  return response.json() as Promise<UploadedAsset>;
+}
+
+export async function createVideoGeneration(input: CreateVideoGenerationInput): Promise<unknown> {
+  const response = await fetch(`${API_BASE}/api/generation/video`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input)
+  });
+  if (!response.ok) {
+    let message = `视频生成请求失败：${response.status}`;
+    try {
+      const body = await response.json() as { error?: string };
+      if (body.error) {
+        message = body.error;
+      }
+    } catch {
+      // Keep the status-based message when the body is not JSON.
+    }
+    throw new Error(message);
+  }
+  return response.json() as Promise<unknown>;
 }

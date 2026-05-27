@@ -8,6 +8,7 @@ import { AnimationPanel } from "./AnimationPanel";
 import { FrameTimeline } from "./FrameTimeline";
 import { ExportPanel } from "./ExportPanel";
 import { StatusLog } from "./StatusLog";
+import { createVideoGeneration, uploadFirstFrameAsset } from "../api/client";
 
 interface SpriteAnimatorProps {
   defaultKeys: SavedAnimationKeys;
@@ -17,6 +18,7 @@ interface SpriteAnimatorProps {
 interface MediaPreview {
   name: string;
   url: string;
+  publicUrl?: string;
 }
 
 interface SpriteAnimatorDraft {
@@ -69,8 +71,11 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
   const [finalVideoPrompt, setFinalVideoPrompt] = useState(savedDraft.finalVideoPrompt);
   const [finalVideoPromptTouched, setFinalVideoPromptTouched] = useState(savedDraft.finalVideoPromptTouched);
   const [firstFramePreview, setFirstFramePreview] = useState<MediaPreview | null>(null);
-  const [videoPreview] = useState<MediaPreview | null>(null);
+  const [firstFramePublicUrl, setFirstFramePublicUrl] = useState<string | null>(null);
+  const [videoPreview, setVideoPreview] = useState<MediaPreview | null>(null);
   const [exportPreview] = useState<MediaPreview | null>(null);
+  const [videoJobMessage, setVideoJobMessage] = useState("等待视频生成结果");
+  const [isGeneratingVideo, setIsGeneratingVideo] = useState(false);
   const [status, setStatus] = useState("就绪：上传或生成一张首帧。");
 
   useEffect(() => {
@@ -126,16 +131,83 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
       setStatus("上传失败：请选择 PNG、JPG 或 WebP 图片。");
       return;
     }
+    const previewUrl = URL.createObjectURL(file);
+    setFirstFramePublicUrl(null);
     setFirstFramePreview((current) => {
       if (current) {
         URL.revokeObjectURL(current.url);
       }
       return {
         name: file.name,
-        url: URL.createObjectURL(file)
+        url: previewUrl
       };
     });
-    setStatus(`已载入首帧：${file.name}`);
+    setStatus(`已载入首帧：${file.name}，正在上传到后端。`);
+    void uploadFirstFrameAsset(file)
+      .then((asset) => {
+        setFirstFramePublicUrl(asset.publicUrl);
+        setFirstFramePreview((current) => {
+          if (!current || current.url !== previewUrl) {
+            return current;
+          }
+          return {
+            ...current,
+            name: asset.fileName,
+            publicUrl: asset.publicUrl
+          };
+        });
+        setStatus(`首帧已上传：${file.name}，可以生成动画。`);
+      })
+      .catch((error: unknown) => {
+        setStatus(`首帧上传失败：${getErrorMessage(error)}`);
+      });
+  };
+
+  const handleGenerateAnimation = async () => {
+    if (!firstFramePreview) {
+      const message = "请先上传或生成首帧，再生成动画。";
+      setVideoJobMessage(message);
+      setStatus(message);
+      return;
+    }
+    if (!firstFramePublicUrl) {
+      const message = "首帧还在上传到后端，上传完成后再点生成动画。";
+      setVideoJobMessage(message);
+      setStatus(message);
+      return;
+    }
+
+    setIsGeneratingVideo(true);
+    setVideoJobMessage("正在提交 Seedance 2 视频任务...");
+    setStatus("正在提交 Seedance 2 视频任务...");
+    try {
+      const response = await createVideoGeneration({
+        model: "bytedance/seedance-2.0",
+        prompt: finalVideoPrompt,
+        firstFrameUrl: firstFramePublicUrl,
+        durationSeconds: 4
+      });
+      const videoUrl = extractVideoUrl(response);
+      if (videoUrl) {
+        setVideoPreview({
+          name: `${assetKey}_${animationKey}.mp4`,
+          url: videoUrl,
+          publicUrl: videoUrl
+        });
+      }
+      const jobId = extractJobId(response);
+      const message = jobId
+        ? `视频任务已提交：${jobId}。完成后会显示在视频预览。`
+        : "视频任务已提交。完成后会显示在视频预览。";
+      setVideoJobMessage(message);
+      setStatus(message);
+    } catch (error: unknown) {
+      const message = `视频生成提交失败：${getErrorMessage(error)}`;
+      setVideoJobMessage(message);
+      setStatus(message);
+    } finally {
+      setIsGeneratingVideo(false);
+    }
   };
 
   const handleSaveDraft = () => {
@@ -191,9 +263,10 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
             <button
               className="tool-button primary"
               type="button"
-              onClick={() => setStatus("动画任务参数已准备好，视频生成结果会显示到视频预览。")}
+              disabled={isGeneratingVideo}
+              onClick={() => void handleGenerateAnimation()}
             >
-              <Play size={16} /> 生成动画
+              <Play size={16} /> {isGeneratingVideo ? "提交中" : "生成动画"}
             </button>
           </div>
         </header>
@@ -209,7 +282,7 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
               />
               <PreviewSlot
                 title="视频预览"
-                label={videoPreview?.name ?? "等待视频生成结果"}
+                label={videoPreview?.name ?? videoJobMessage}
                 kind="video"
                 preview={videoPreview}
               />
@@ -410,4 +483,37 @@ function buildFirstFramePrompt(input: {
   ]
     .filter((part) => part.trim().length > 0)
     .join(" ");
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function extractJobId(response: unknown): string | undefined {
+  if (!response || typeof response !== "object") {
+    return undefined;
+  }
+  const record = response as Record<string, unknown>;
+  const id = record.id ?? record.job_id ?? record.jobId;
+  return typeof id === "string" ? id : undefined;
+}
+
+function extractVideoUrl(response: unknown): string | undefined {
+  if (!response || typeof response !== "object") {
+    return undefined;
+  }
+  const record = response as Record<string, unknown>;
+  const direct = record.url ?? record.video_url ?? record.videoUrl;
+  if (typeof direct === "string") {
+    return direct;
+  }
+  const data = record.data;
+  if (data && typeof data === "object") {
+    const dataRecord = data as Record<string, unknown>;
+    const dataUrl = dataRecord.url ?? dataRecord.video_url ?? dataRecord.videoUrl;
+    if (typeof dataUrl === "string") {
+      return dataUrl;
+    }
+  }
+  return undefined;
 }

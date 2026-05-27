@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../src/App";
 
@@ -8,6 +8,31 @@ beforeEach(() => {
     createObjectURL: vi.fn(() => "blob:first-frame-preview"),
     revokeObjectURL: vi.fn()
   });
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string) => {
+      if (url.includes("/api/assets/first-frame")) {
+        return {
+          ok: true,
+          json: async () => ({
+            fileName: "hero-front.png",
+            publicUrl: "http://127.0.0.1:8787/assets/hero-front.png"
+          })
+        };
+      }
+      if (url.includes("/api/generation/video")) {
+        return {
+          ok: true,
+          json: async () => ({ id: "video_job_123", status: "queued" })
+        };
+      }
+      return {
+        ok: false,
+        status: 404,
+        json: async () => ({ error: "not found" })
+      };
+    })
+  );
 });
 
 afterEach(() => {
@@ -49,6 +74,36 @@ describe("App", () => {
     expect(screen.getByAltText("首帧预览")).toHaveAttribute("src", "blob:first-frame-preview");
     expect(screen.getAllByText("hero-front.png").length).toBeGreaterThan(0);
     expect(screen.getByText(/已载入首帧/)).toBeInTheDocument();
+  });
+
+  it("shows a clear error when generating animation without a first frame", () => {
+    openSpriteAnimator();
+
+    fireEvent.click(screen.getByRole("button", { name: /生成动画/i }));
+
+    expect(screen.getAllByText(/请先上传或生成首帧/).length).toBeGreaterThan(0);
+  });
+
+  it("submits a video generation request after the first frame is uploaded", async () => {
+    openSpriteAnimator();
+
+    const file = new File(["fake-image"], "hero-front.png", { type: "image/png" });
+    fireEvent.change(screen.getByLabelText("上传首帧文件"), {
+      target: { files: [file] }
+    });
+    await screen.findByText(/首帧已上传/);
+
+    fireEvent.click(screen.getByRole("button", { name: /生成动画/i }));
+
+    await waitFor(() => expect(screen.getAllByText(/视频任务已提交/).length).toBeGreaterThan(0));
+    const fetchMock = vi.mocked(fetch);
+    const videoCall = fetchMock.mock.calls.find(([url]) => String(url).includes("/api/generation/video"));
+    expect(videoCall).toBeDefined();
+    expect(videoCall?.[1]).toMatchObject({ method: "POST" });
+    expect(JSON.parse(String(videoCall?.[1]?.body))).toMatchObject({
+      model: "bytedance/seedance-2.0",
+      firstFrameUrl: "http://127.0.0.1:8787/assets/hero-front.png"
+    });
   });
 
   it("exposes Chinese generation prompts and custom image size as editable controls", () => {
