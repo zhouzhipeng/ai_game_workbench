@@ -109,4 +109,36 @@ describe("asset routes", () => {
     expect(response.statusCode).toBe(400);
     expect(response.json().error).toContain("HTTPS");
   });
+
+  it("uploads a frame-processing video as a local job source", async () => {
+    const app = createApp({
+      storageDir: tempDir,
+      port: 8787
+    });
+    const boundary = "----ai-game-workbench-test";
+    const payload = [
+      `--${boundary}`,
+      'Content-Disposition: form-data; name="file"; filename="source.mp4"',
+      "Content-Type: video/mp4",
+      "",
+      "fake-video-bytes",
+      `--${boundary}--`,
+      ""
+    ].join("\r\n");
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/assets/frame-video",
+      headers: {
+        "content-type": `multipart/form-data; boundary=${boundary}`
+      },
+      payload
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    expect(body.jobId).toMatch(/^local-video-/);
+    expect(body.localVideoUrl).toBe(`/jobs/${body.jobId}/source.mp4`);
+    expect(await readFile(body.localPath, "utf8")).toBe("fake-video-bytes");
+  });
 });

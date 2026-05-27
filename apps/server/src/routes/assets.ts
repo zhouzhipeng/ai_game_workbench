@@ -17,7 +17,7 @@ export function registerAssetRoutes(app: FastifyInstance, config: AssetRouteConf
 
   void app.register(multipart, {
     limits: {
-      fileSize: 20 * 1024 * 1024,
+      fileSize: 200 * 1024 * 1024,
       files: 1
     }
   });
@@ -56,6 +56,29 @@ export function registerAssetRoutes(app: FastifyInstance, config: AssetRouteConf
       localPath,
       localUrl: `/assets/${storedName}`,
       publicUrl: `${publicBaseResult.publicBase.replace(/\/$/, "")}/${storedName}`
+    };
+  });
+
+  app.post("/api/assets/frame-video", async (request, reply) => {
+    const file = await request.file();
+    if (!file) {
+      return reply.code(400).send({ error: "file is required" });
+    }
+    if (!file.mimetype.startsWith("video/")) {
+      return reply.code(400).send({ error: "only video files are supported" });
+    }
+
+    const jobId = `local-video-${randomUUID()}`;
+    const jobDir = join(jobsDir, jobId);
+    const localPath = join(jobDir, "source.mp4");
+    await mkdir(jobDir, { recursive: true });
+    await writeFile(localPath, await file.toBuffer());
+
+    return {
+      fileName: file.filename,
+      jobId,
+      localPath,
+      localVideoUrl: `/jobs/${jobId}/source.mp4`
     };
   });
 }

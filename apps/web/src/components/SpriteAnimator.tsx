@@ -24,6 +24,7 @@ import {
   getVideoGenerationStatus,
   processVideoFrames,
   toAbsoluteApiUrl,
+  uploadFrameVideoAsset,
   uploadFirstFrameAsset
 } from "../api/client";
 
@@ -166,6 +167,15 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
     }, Math.max(40, Math.round(1000 / Math.max(1, fps))));
     return () => window.clearInterval(interval);
   }, [fps, isPlayingFrames, visibleFrames.length]);
+
+  useEffect(() => {
+    if (visibleFrames.length === 0) {
+      setIsPlayingFrames(false);
+      setActiveFrameIndex(0);
+      return;
+    }
+    setActiveFrameIndex((current) => Math.min(current, visibleFrames.length - 1));
+  }, [visibleFrames.length]);
 
   useEffect(() => {
     return () => {
@@ -376,6 +386,55 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
     } finally {
       setIsProcessingFrames(false);
     }
+  };
+
+  const handleFrameVideoUpload = (file: File) => {
+    if (!file.type.startsWith("video/")) {
+      setFrameStatus("上传失败：请选择视频文件。");
+      return;
+    }
+    const previewUrl = URL.createObjectURL(file);
+    setFrameVideoInputPreview((current) => {
+      if (current?.url.startsWith("blob:")) {
+        URL.revokeObjectURL(current.url);
+      }
+      return {
+        name: file.name,
+        url: previewUrl
+      };
+    });
+    setVideoJobId("");
+    setFrames([]);
+    setActiveFrameIndex(0);
+    setIsPlayingFrames(false);
+    setFrameStatus(`已载入帧处理视频：${file.name}，正在保存资源。`);
+    void uploadFrameVideoAsset(file)
+      .then((asset) => {
+        const preview = {
+          name: asset.fileName,
+          url: toAbsoluteApiUrl(asset.localVideoUrl),
+          publicUrl: asset.localVideoUrl
+        };
+        setVideoJobId(asset.jobId);
+        setFrameVideoInputPreview(preview);
+        setFrameStatus(`帧处理视频已载入：${asset.fileName}，可以处理视频帧。`);
+      })
+      .catch((error: unknown) => {
+        setFrameStatus(`帧处理视频保存失败：${getErrorMessage(error)}`);
+      });
+  };
+
+  const handleSelectFrame = (index: number) => {
+    const nextIndex = visibleFrames.findIndex((frame) => frame.index === index);
+    if (nextIndex >= 0) {
+      setActiveFrameIndex(nextIndex);
+    }
+  };
+
+  const handleToggleFrame = (index: number) => {
+    setFrames((current) => current.map((frame) =>
+      frame.index === index ? { ...frame, hidden: !frame.hidden } : frame
+    ));
   };
 
   const handleSaveDraft = () => {
@@ -639,17 +698,28 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
               <FramePlayer
                 activeFrame={activeFrame}
                 frames={frames}
+                visibleFrameCount={visibleFrames.length}
                 isPlaying={isPlayingFrames}
-                onToggleFrame={(index) => {
-                  setFrames((current) => current.map((frame) =>
-                    frame.index === index ? { ...frame, hidden: !frame.hidden } : frame
-                  ));
-                }}
               />
             )}
             controls={(
               <>
                 <div className="control-row">
+                  <label className="file-picker">
+                    <Upload size={16} /> 上传帧处理视频
+                    <input
+                      aria-label="上传帧处理视频"
+                      className="visually-hidden"
+                      type="file"
+                      accept="video/*"
+                      onChange={(event) => {
+                        const file = event.target.files?.[0];
+                        if (file) {
+                          handleFrameVideoUpload(file);
+                        }
+                      }}
+                    />
+                  </label>
                   <button
                     className="tool-button primary"
                     type="button"
@@ -729,6 +799,15 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
                 </div>
               </>
             )}
+            footer={(
+              <FrameTimeline
+                activeFrame={activeFrame}
+                frames={frames}
+                visibleFrameCount={visibleFrames.length}
+                onSelectFrame={handleSelectFrame}
+                onToggleFrame={handleToggleFrame}
+              />
+            )}
           />
         </div>
       </section>
@@ -743,7 +822,8 @@ function WorkflowStage({
   outputTitle,
   input,
   output,
-  controls
+  controls,
+  footer
 }: {
   title: string;
   status: string;
@@ -752,6 +832,7 @@ function WorkflowStage({
   input: React.ReactNode;
   output: React.ReactNode;
   controls: React.ReactNode;
+  footer?: React.ReactNode;
 }) {
   return (
     <section className="workflow-stage">
@@ -764,6 +845,7 @@ function WorkflowStage({
         <MediaPane title={outputTitle}>{output}</MediaPane>
       </div>
       <div className="stage-controls">{controls}</div>
+      {footer ? <div className="stage-footer">{footer}</div> : null}
     </section>
   );
 }
@@ -810,36 +892,92 @@ function EmptyMedia({ label }: { label: string }) {
 function FramePlayer({
   activeFrame,
   frames,
-  isPlaying,
-  onToggleFrame
+  visibleFrameCount,
+  isPlaying
 }: {
   activeFrame: FramePreview | undefined;
   frames: readonly FramePreview[];
+  visibleFrameCount: number;
   isPlaying: boolean;
-  onToggleFrame: (index: number) => void;
 }) {
   return (
     <div className="frame-player">
       <div className="frame-player-screen">
         {activeFrame ? <img alt={`第 ${activeFrame.index} 帧`} src={activeFrame.url} /> : <EmptyMedia label="等待帧输出" />}
+        {activeFrame ? (
+          <span className="frame-current-badge">
+            当前帧：{activeFrame.index} / {frames.length} · 可播放 {visibleFrameCount}
+          </span>
+        ) : null}
         {frames.length > 0 ? <span className="playback-badge">{isPlaying ? "播放中" : "已停止"}</span> : null}
+      </div>
+    </div>
+  );
+}
+
+function FrameTimeline({
+  activeFrame,
+  frames,
+  visibleFrameCount,
+  onSelectFrame,
+  onToggleFrame
+}: {
+  activeFrame: FramePreview | undefined;
+  frames: readonly FramePreview[];
+  visibleFrameCount: number;
+  onSelectFrame: (index: number) => void;
+  onToggleFrame: (index: number) => void;
+}) {
+  if (frames.length === 0) {
+    return (
+      <section className="frame-timeline" aria-label="帧时间轴">
+        <div className="frame-timeline-header">
+          <strong>帧时间轴</strong>
+          <span>等待帧输出</span>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="frame-timeline" aria-label="帧时间轴">
+      <div className="frame-timeline-header">
+        <strong>帧时间轴</strong>
+        <span>当前帧：{activeFrame?.index ?? "-"} / {frames.length}</span>
+        <span>可播放：{visibleFrameCount}</span>
       </div>
       <div className="frame-thumb-strip">
         {frames.map((frame) => (
-          <button
+          <div
             key={frame.index}
-            className={`frame-thumb ${frame.hidden ? "frame-thumb-hidden" : ""}`}
-            type="button"
-            aria-label={`${frame.hidden ? "恢复" : "屏蔽"}第 ${frame.index} 帧`}
-            onClick={() => onToggleFrame(frame.index)}
+            className={[
+              "frame-thumb-card",
+              frame.hidden ? "frame-thumb-hidden" : "",
+              activeFrame?.index === frame.index ? "frame-thumb-selected" : ""
+            ].filter(Boolean).join(" ")}
           >
-            <img alt="" src={frame.url} />
-            <span>{String(frame.index).padStart(2, "0")}</span>
-            {frame.hidden ? <EyeOff size={14} /> : <Eye size={14} />}
-          </button>
+            <button
+              className="frame-select-button"
+              type="button"
+              aria-label={`选择第 ${frame.index} 帧`}
+              disabled={frame.hidden}
+              onClick={() => onSelectFrame(frame.index)}
+            >
+              <img alt="" src={frame.url} />
+              <span>{String(frame.index).padStart(2, "0")}</span>
+            </button>
+            <button
+              className="frame-visibility-button"
+              type="button"
+              aria-label={`${frame.hidden ? "恢复" : "屏蔽"}第 ${frame.index} 帧`}
+              onClick={() => onToggleFrame(frame.index)}
+            >
+              {frame.hidden ? <EyeOff size={14} /> : <Eye size={14} />}
+            </button>
+          </div>
         ))}
       </div>
-    </div>
+    </section>
   );
 }
 

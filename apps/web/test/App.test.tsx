@@ -22,6 +22,13 @@ beforeEach(() => {
         publicUrl: "https://assets.example.com/hero-raw.png"
       });
     }
+    if (url.includes("/api/assets/frame-video")) {
+      return jsonResponse({
+        fileName: "local-source.mp4",
+        jobId: "local-video-123",
+        localVideoUrl: "/jobs/local-video-123/source.mp4"
+      });
+    }
     if (url.includes("/api/generation/first-frame")) {
       return jsonResponse({
         fileName: "hero-processed.png",
@@ -151,7 +158,13 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: /处理视频帧/i }));
 
     await screen.findByAltText("第 1 帧");
+    expect(screen.getByLabelText("帧时间轴")).toBeInTheDocument();
+    expect(screen.getByText("当前帧：1 / 3")).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /选择第 .* 帧/ })).toHaveLength(3);
     expect(screen.getAllByRole("button", { name: /屏蔽第 .* 帧/ })).toHaveLength(3);
+    fireEvent.click(screen.getByRole("button", { name: "选择第 3 帧" }));
+    expect(screen.getByAltText("第 3 帧")).toBeInTheDocument();
+    expect(screen.getByText("当前帧：3 / 3")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "屏蔽第 1 帧" }));
     fireEvent.click(screen.getByRole("button", { name: "播放帧动画" }));
     expect(screen.getAllByText(/播放中/).length).toBeGreaterThan(0);
@@ -196,6 +209,29 @@ describe("App", () => {
     );
     expect(JSON.parse(String(videoCall?.[1]?.body))).toMatchObject({
       firstFrameUrl: "https://assets.example.com/hero-raw.png"
+    });
+  });
+
+  it("allows frame processing to upload a local video directly in the third stage", async () => {
+    openSpriteAnimator();
+
+    const file = new File(["local-video"], "local-source.mp4", { type: "video/mp4" });
+    fireEvent.change(screen.getByLabelText("上传帧处理视频"), {
+      target: { files: [file] }
+    });
+
+    await screen.findByText(/帧处理视频已载入：local-source.mp4/);
+    expect(screen.getByLabelText("帧处理视频输入预览")).toHaveAttribute(
+      "src",
+      "http://127.0.0.1:8787/jobs/local-video-123/source.mp4"
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /处理视频帧/i }));
+
+    await screen.findByText("当前帧：1 / 3");
+    const processCall = fetchMock.mock.calls.find(([url]) => String(url).includes("/api/processing/frames"));
+    expect(JSON.parse(String(processCall?.[1]?.body))).toMatchObject({
+      jobId: "local-video-123"
     });
   });
 

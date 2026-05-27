@@ -10,6 +10,13 @@ export interface UploadedAsset {
   publicUrl: string;
 }
 
+export interface UploadedFrameVideo {
+  fileName: string;
+  jobId: string;
+  localPath: string;
+  localVideoUrl: string;
+}
+
 export interface CreateVideoGenerationInput {
   model: string;
   prompt: string;
@@ -99,6 +106,19 @@ export async function uploadFirstFrameAsset(
     throw new Error(`上传首帧失败：${response.status}`);
   }
   return response.json() as Promise<UploadedAsset>;
+}
+
+export async function uploadFrameVideoAsset(file: File): Promise<UploadedFrameVideo> {
+  const formData = new FormData();
+  formData.append("file", file);
+  const response = await fetch(`${API_BASE}/api/assets/frame-video`, {
+    method: "POST",
+    body: formData
+  });
+  if (!response.ok) {
+    throw new Error(`上传帧处理视频失败：${response.status}`);
+  }
+  return response.json() as Promise<UploadedFrameVideo>;
 }
 
 function buildUploadHeaders(options: UploadAssetOptions): Record<string, string> | undefined {

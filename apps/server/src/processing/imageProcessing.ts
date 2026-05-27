@@ -23,8 +23,7 @@ export async function applyColorKeyToBuffer(
     const r = raw[index] ?? 0;
     const g = raw[index + 1] ?? 0;
     const b = raw[index + 2] ?? 0;
-    const distance = Math.max(Math.abs(r - key.r), Math.abs(g - key.g), Math.abs(b - key.b));
-    if (distance <= tolerance) {
+    if (isKeyColorPixel({ r, g, b }, key, tolerance)) {
       raw[index + 3] = 0;
     }
   }
@@ -90,4 +89,29 @@ function parseHexColor(hex: string): { r: number; g: number; b: number } {
     g: Number.parseInt(normalized.slice(2, 4), 16),
     b: Number.parseInt(normalized.slice(4, 6), 16)
   };
+}
+
+function isKeyColorPixel(
+  pixel: { r: number; g: number; b: number },
+  key: { r: number; g: number; b: number },
+  tolerance: number
+): boolean {
+  const distance = Math.max(
+    Math.abs(pixel.r - key.r),
+    Math.abs(pixel.g - key.g),
+    Math.abs(pixel.b - key.b)
+  );
+  if (distance <= tolerance) {
+    return true;
+  }
+  return isGreenScreenKey(key) && isGreenScreenPixel(pixel, tolerance);
+}
+
+function isGreenScreenKey(key: { r: number; g: number; b: number }): boolean {
+  return key.g > 160 && key.g > key.r * 1.8 && key.g > key.b * 1.8;
+}
+
+function isGreenScreenPixel(pixel: { r: number; g: number; b: number }, tolerance: number): boolean {
+  const dominance = pixel.g - Math.max(pixel.r, pixel.b);
+  return pixel.g >= 96 && dominance >= Math.max(24, tolerance * 3);
 }
