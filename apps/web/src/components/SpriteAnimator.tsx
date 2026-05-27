@@ -65,9 +65,16 @@ interface SpriteAnimatorDraft {
   tolerance: number;
 }
 
-const DRAFT_STORAGE_KEY = "ai-game-workbench.sprite-animator.workflow.v2";
+const DRAFT_STORAGE_KEY = "ai-game-workbench.sprite-animator.workflow.v3";
+const LEGACY_DRAFT_STORAGE_KEY = "ai-game-workbench.sprite-animator.workflow.v2";
 const FIXED_PUBLIC_ASSET_BASE_URL = "https://darn-skittle-unwoven.ngrok-free.dev";
-const DEFAULT_IMAGE_MODEL = "bytedance-seed/seedream-4.5";
+const LEGACY_SEEDREAM_IMAGE_MODEL = "bytedance-seed/seedream-4.5";
+const IMAGE_MODELS = [
+  { id: "openai/gpt-5.4-image-2", label: "GPT Image 2 (openai/gpt-5.4-image-2)" },
+  { id: "google/gemini-3.1-flash-image-preview", label: "Nano Banana 2 (google/gemini-3.1-flash-image-preview)" },
+  { id: LEGACY_SEEDREAM_IMAGE_MODEL, label: "Seedream 4.5 (bytedance-seed/seedream-4.5)" }
+] as const;
+const DEFAULT_IMAGE_MODEL = IMAGE_MODELS[0].id;
 const DEFAULT_IMAGE_PROMPT = "白色短发、粉色眼睛、黑色服装配白色袖子和花饰的成年二次元像素角色";
 const DEFAULT_IMAGE_PROMPT_INSTRUCTIONS =
   "生成正方形像素风首帧，单个全身角色居中，轮廓干净，转换为像素风，使用纯色抠图背景，无阴影、无地面、无文字。";
@@ -475,7 +482,9 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
                   <label className="field">
                     图像模型
                     <select aria-label="图像模型" value={imageModel} onChange={(event) => setImageModel(event.target.value)}>
-                      <option value="bytedance-seed/seedream-4.5">bytedance-seed/seedream-4.5</option>
+                      {IMAGE_MODELS.map((model) => (
+                        <option key={model.id} value={model.id}>{model.label}</option>
+                      ))}
                     </select>
                   </label>
                   <DirectionSelect label="朝向" value={direction} onChange={(value) => {
@@ -857,18 +866,47 @@ function DirectionSelect({
 
 function loadDraft(defaultKeys: SavedAnimationKeys): SpriteAnimatorDraft {
   const fallback = buildDefaultDraft(defaultKeys);
-  const raw = localStorage.getItem(DRAFT_STORAGE_KEY);
-  if (!raw) {
+  const storedDraft = readStoredDraft();
+  if (!storedDraft) {
     return fallback;
   }
   try {
-    return {
+    const draft = {
       ...fallback,
-      ...JSON.parse(raw)
+      ...JSON.parse(storedDraft.raw)
     };
+    return normalizeDraft(draft, fallback, storedDraft.isLegacy);
   } catch {
     return fallback;
   }
+}
+
+function readStoredDraft(): { raw: string; isLegacy: boolean } | null {
+  const current = localStorage.getItem(DRAFT_STORAGE_KEY);
+  if (current) {
+    return { raw: current, isLegacy: false };
+  }
+  const legacy = localStorage.getItem(LEGACY_DRAFT_STORAGE_KEY);
+  return legacy ? { raw: legacy, isLegacy: true } : null;
+}
+
+function normalizeDraft(
+  draft: SpriteAnimatorDraft,
+  fallback: SpriteAnimatorDraft,
+  isLegacy: boolean
+): SpriteAnimatorDraft {
+  const next = { ...draft };
+  if (isLegacy && next.imageModel === LEGACY_SEEDREAM_IMAGE_MODEL) {
+    next.imageModel = DEFAULT_IMAGE_MODEL;
+  }
+  if (!isKnownImageModel(next.imageModel)) {
+    next.imageModel = fallback.imageModel;
+  }
+  return next;
+}
+
+function isKnownImageModel(model: string): boolean {
+  return IMAGE_MODELS.some((item) => item.id === model);
 }
 
 function buildDefaultDraft(defaultKeys: SavedAnimationKeys): SpriteAnimatorDraft {

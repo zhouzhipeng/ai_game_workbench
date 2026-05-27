@@ -52,6 +52,30 @@ describe("buildImageGenerationPayload", () => {
     expect(payload.modalities).toEqual(["image"]);
     expect(payload).not.toHaveProperty("image_config");
   });
+
+  it("uses the OpenRouter GPT Image 2 chat payload without Gemini-only image config", () => {
+    const payload = buildImageGenerationPayload({
+      model: "openai/gpt-5.4-image-2",
+      prompt: "正面像素角色",
+      targetSize: 512,
+      keyColor: "#00ff00",
+      direction: "front",
+      referenceImageDataUrl: "data:image/png;base64,abc123"
+    });
+
+    expect(payload.model).toBe("openai/gpt-5.4-image-2");
+    expect(payload.modalities).toEqual(["image", "text"]);
+    expect(payload).not.toHaveProperty("image_config");
+    expect(payload.messages[0]?.content).toEqual([
+      expect.objectContaining({ type: "text" }),
+      expect.objectContaining({
+        type: "image_url",
+        image_url: {
+          url: "data:image/png;base64,abc123"
+        }
+      })
+    ]);
+  });
 });
 
 describe("buildVideoGenerationPayload", () => {

@@ -81,7 +81,7 @@ function getImageGenerationModalities(model: string) {
 }
 
 function buildImageConfig(model: string) {
-  if (isImageOnlyModel(model)) {
+  if (!supportsImageConfig(model)) {
     return {};
   }
   return {
@@ -90,6 +90,10 @@ function buildImageConfig(model: string) {
       image_size: "1K" as const
     }
   };
+}
+
+function supportsImageConfig(model: string): boolean {
+  return model.startsWith("google/gemini-");
 }
 
 function isImageOnlyModel(model: string): boolean {

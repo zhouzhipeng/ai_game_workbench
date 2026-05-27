@@ -86,10 +86,23 @@ describe("App", () => {
     expect(screen.getByRole("heading", { name: /第三段.*帧处理/ })).toBeInTheDocument();
     expect(screen.getAllByText("输入预览")).toHaveLength(3);
     expect(screen.getAllByText("输出预览")).toHaveLength(3);
-    expect(screen.getByLabelText(/图像模型/i)).toHaveValue("bytedance-seed/seedream-4.5");
+    expect(screen.getByLabelText(/图像模型/i)).toHaveValue("openai/gpt-5.4-image-2");
+    expect(screen.getByRole("option", { name: /Nano Banana 2/i })).toHaveValue("google/gemini-3.1-flash-image-preview");
     expect(screen.getByLabelText(/视频模型/i)).toHaveValue("bytedance/seedance-2.0");
     expect(screen.getByText("https://darn-skittle-unwoven.ngrok-free.dev")).toBeInTheDocument();
     expect(screen.queryByRole("textbox", { name: /公网资源地址/i })).not.toBeInTheDocument();
+  });
+
+  it("migrates the old Seedream image default to GPT Image 2 while keeping saved keys", () => {
+    localStorage.setItem("ai-game-workbench.sprite-animator.workflow.v2", JSON.stringify({
+      openRouterApiKey: "sk-or-v1-saved-key",
+      imageModel: "bytedance-seed/seedream-4.5"
+    }));
+
+    openSpriteAnimator();
+
+    expect(screen.getByLabelText(/OpenRouter 密钥/i)).toHaveValue("sk-or-v1-saved-key");
+    expect(screen.getByLabelText(/图像模型/i)).toHaveValue("openai/gpt-5.4-image-2");
   });
 
   it("runs first-frame processing, video polling, and frame processing through the visible workflow", async () => {
