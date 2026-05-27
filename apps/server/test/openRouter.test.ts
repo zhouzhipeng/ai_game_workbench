@@ -1,0 +1,57 @@
+import { describe, expect, it } from "vitest";
+import {
+  buildImageGenerationPayload,
+  buildVideoGenerationPayload
+} from "../src/providers/openRouter";
+
+describe("buildImageGenerationPayload", () => {
+  it("builds an OpenRouter image generation payload for square pixel-art first frames", () => {
+    const payload = buildImageGenerationPayload({
+      model: "google/gemini-3.1-flash-image-preview",
+      prompt: "blue armored heroine",
+      targetSize: 256,
+      keyColor: "#00ff00",
+      seed: 123
+    });
+
+    expect(payload.model).toBe("google/gemini-3.1-flash-image-preview");
+    expect(payload.modalities).toEqual(["image", "text"]);
+    expect(payload.image_config).toEqual({
+      aspect_ratio: "1:1",
+      image_size: "1K"
+    });
+    expect(payload.messages[0]?.content).toContain("blue armored heroine");
+    expect(payload.messages[0]?.content).toContain("256x256");
+    expect(payload.messages[0]?.content).toContain("solid #00ff00 background");
+    expect(payload.seed).toBe(123);
+  });
+});
+
+describe("buildVideoGenerationPayload", () => {
+  it("builds an OpenRouter image-to-video payload with a first-frame image", () => {
+    const payload = buildVideoGenerationPayload({
+      model: "bytedance/seedance-2.0-fast",
+      prompt: "walk forward in a short loop",
+      firstFrameUrl: "https://example.com/first-frame.png",
+      durationSeconds: 4
+    });
+
+    expect(payload).toEqual({
+      model: "bytedance/seedance-2.0-fast",
+      prompt: "walk forward in a short loop",
+      duration: 4,
+      resolution: "720p",
+      aspect_ratio: "1:1",
+      generate_audio: false,
+      frame_images: [
+        {
+          type: "image_url",
+          image_url: {
+            url: "https://example.com/first-frame.png"
+          },
+          frame_type: "first_frame"
+        }
+      ]
+    });
+  });
+});

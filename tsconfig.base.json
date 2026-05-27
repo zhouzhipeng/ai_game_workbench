@@ -13,6 +13,12 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
-    "noUncheckedIndexedAccess": true
+    "noUncheckedIndexedAccess": true,
+    "baseUrl": ".",
+    "paths": {
+      "@ai-game-workbench/core": [
+        "packages/core/src/index.ts"
+      ]
+    }
   }
 }
