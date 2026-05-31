@@ -27,8 +27,8 @@ export function WorkbenchHub({ onOpenSpriteAnimator }: WorkbenchHubProps) {
       <section className="module-grid" aria-label="工作台模块">
         <button className="module-card module-card-active" type="button" onClick={onOpenSpriteAnimator}>
           <span className="module-icon"><Film size={28} /></span>
-          <span className="module-title">AI 精灵动画生成</span>
-          <span className="module-desc">从像素角色首帧生成精灵动画素材。</span>
+          <span className="module-title">模块 01：2D精美角色动画生成</span>
+          <span className="module-desc">生成角色基准模板、基础角色方向图、步行动画和循环精灵帧。</span>
         </button>
 
         {plannedModules.map((module) => {

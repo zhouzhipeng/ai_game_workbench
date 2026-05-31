@@ -1,20 +1,97 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { FastifyInstance } from "fastify";
 import {
+  type BuildImageGenerationPayloadInput,
   buildImageGenerationPayload,
   buildVideoGenerationPayload,
   OpenRouterError,
   OpenRouterClient
 } from "../providers/openRouter";
+import {
+  generateLocalCodexImage,
+  isLocalCodexImageModel,
+  type LocalCodexImageGenerationInput,
+  type LocalCodexImageGenerationResult
+} from "../providers/localCodex";
 import type { AppConfig } from "../config";
-import { resolvePublicAssetBaseUrl } from "./assets";
+import { resolvePublicAssetBaseUrl, resolvePublicServerBaseUrl } from "./assets";
+import {
+  ensureCharacterFolder,
+  removeCharacterFilesByStem,
+  resolveCharacterPath,
+  toCharacterUrl
+} from "../characterStorage";
+import {
+  getModule01ReferenceImageUrl,
+  readModule01ReferenceImageBuffer,
+  resolveModule01ReferenceImagePath
+} from "../referenceImages";
+
+const BUILT_IN_STYLE_REFERENCE_CONTENT_TYPE = "image/png";
+
+const DIRECTION_REFERENCES = {
+  idle: {
+    path: getModule01ReferenceImageUrl("idle")
+  },
+  walk: {
+    path: getModule01ReferenceImageUrl("walk")
+  },
+  run: {
+    path: getModule01ReferenceImageUrl("run")
+  }
+} as const;
+type DirectionTemplateKind = keyof typeof DIRECTION_REFERENCES;
+type AdvancedActionKind = "run" | "attack-1" | "jump";
+
+interface DirectionTemplateGenerationInput {
+  templateKind?: string;
+  model: string;
+  prompt: string;
+  targetSize: number;
+  keyColor: string;
+  characterTemplateImageDataUrl?: string;
+  seed?: number;
+}
+
+interface AdvancedActionMidframeGenerationInput {
+  actionKind?: string;
+  model: string;
+  prompt: string;
+  targetSize: number;
+  keyColor: string;
+  startFrameImageDataUrl?: string;
+  seed?: number;
+}
 
 export function registerGenerationRoutes(app: FastifyInstance, config: AppConfig): void {
   app.post("/api/generation/first-frame/payload", async (request) => {
-    return buildImageGenerationPayload(request.body as Parameters<typeof buildImageGenerationPayload>[0]);
+    return buildImageGenerationPayload(
+      await withBuiltInStyleReference(request.body as Parameters<typeof buildImageGenerationPayload>[0], config)
+    );
+  });
+
+  app.get(getModule01ReferenceImageUrl("style"), async (_request, reply) => {
+    const buffer = await readBuiltInStyleReferenceBuffer(config);
+    return reply.header("Content-Type", BUILT_IN_STYLE_REFERENCE_CONTENT_TYPE).send(buffer);
+  });
+
+  for (const [kind, reference] of Object.entries(DIRECTION_REFERENCES) as [DirectionTemplateKind, typeof DIRECTION_REFERENCES[DirectionTemplateKind]][]) {
+    app.get(reference.path, async (_request, reply) => {
+      const buffer = await readBuiltInDirectionReferenceBuffer(kind, config);
+      return reply.header("Content-Type", BUILT_IN_STYLE_REFERENCE_CONTENT_TYPE).send(buffer);
+    });
+  }
+
+  app.post("/api/generation/direction-template/payload", async (request, reply) => {
+    const input = await buildDirectionTemplatePayloadInput(request.body as DirectionTemplateGenerationInput, config);
+    if ("error" in input) {
+      return reply.code(400).send({ error: input.error });
+    }
+    return buildImageGenerationPayload(input);
   });
 
   app.post("/api/generation/video/payload", async (request) => {
@@ -22,20 +99,164 @@ export function registerGenerationRoutes(app: FastifyInstance, config: AppConfig
   });
 
   app.post("/api/generation/first-frame", async (request, reply) => {
-    const apiKey = resolveOpenRouterApiKey(request, config);
-    if (!apiKey) {
-      return reply.code(400).send({ error: "OPENROUTER_API_KEY is not configured" });
-    }
+    const requestBody = request.body as Parameters<typeof buildImageGenerationPayload>[0];
     const publicBaseResult = resolvePublicAssetBaseUrl(request.headers["x-public-asset-base-url"], config);
     if ("error" in publicBaseResult) {
       return reply.code(400).send({ error: publicBaseResult.error });
     }
+    if (isLocalCodexImageModel(requestBody.model)) {
+      try {
+        const localResult = await runLocalCodexFirstFrameGeneration(requestBody, config);
+        return await storeGeneratedFirstFrame(
+          localCodexResultToProviderResponse(localResult),
+          config,
+          publicBaseResult.publicBase,
+          {
+            characterId: readCharacterId(request.body) ?? readCharacterId(request.headers),
+            characterTarget: "base-template-output",
+            publicServerBase: resolvePublicServerBaseUrl(request.headers["x-public-asset-base-url"], config)
+          }
+        );
+      } catch (error: unknown) {
+        return sendGenerationError(error, reply);
+      }
+    }
+    const apiKey = resolveOpenRouterApiKey(request, config);
+    if (!apiKey) {
+      return reply.code(400).send({ error: "OPENROUTER_API_KEY is not configured" });
+    }
     const client = new OpenRouterClient({ apiKey });
     try {
+      const input = await withBuiltInStyleReference(requestBody, config);
       const providerResponse = await client.createImage(
-        buildImageGenerationPayload(request.body as Parameters<typeof buildImageGenerationPayload>[0])
+        buildImageGenerationPayload(input)
       );
-      return await storeGeneratedFirstFrame(providerResponse, config, publicBaseResult.publicBase);
+      return await storeGeneratedFirstFrame(providerResponse, config, publicBaseResult.publicBase, {
+        apiKey,
+        characterId: readCharacterId(request.body) ?? readCharacterId(request.headers),
+        characterTarget: "base-template-output",
+        publicServerBase: resolvePublicServerBaseUrl(request.headers["x-public-asset-base-url"], config)
+      });
+    } catch (error: unknown) {
+      return sendGenerationError(error, reply);
+    }
+  });
+
+  app.post("/api/generation/direction-template", async (request, reply) => {
+    const requestBody = request.body as DirectionTemplateGenerationInput;
+    const publicBaseResult = resolvePublicAssetBaseUrl(request.headers["x-public-asset-base-url"], config);
+    if ("error" in publicBaseResult) {
+      return reply.code(400).send({ error: publicBaseResult.error });
+    }
+    const input = await buildDirectionTemplatePayloadInput(requestBody, config);
+    if ("error" in input) {
+      return reply.code(400).send({ error: input.error });
+    }
+    if (isLocalCodexImageModel(requestBody.model)) {
+      try {
+        const templateKind = requestBody.templateKind as DirectionTemplateKind;
+        const characterId = readCharacterId(request.body) ?? readCharacterId(request.headers);
+        const localResult = await runLocalCodexDirectionTemplateGeneration(requestBody, config);
+        const result = await storeGeneratedFirstFrame(
+          localCodexResultToProviderResponse(localResult),
+          config,
+          publicBaseResult.publicBase,
+          {
+            fileName: `generated-${templateKind}-4dir.png`,
+            characterId,
+            characterTarget: getDirectionTemplateCharacterTarget(templateKind),
+            publicServerBase: resolvePublicServerBaseUrl(request.headers["x-public-asset-base-url"], config)
+          }
+        );
+        if (templateKind === "walk" && characterId && !("error" in result)) {
+          await removeCharacterFilesByStem(config.storageDir, characterId, ["base-character", "direction-templates"], "idle-4dir");
+        }
+        return result;
+      } catch (error: unknown) {
+        return sendGenerationError(error, reply);
+      }
+    }
+    const apiKey = resolveOpenRouterApiKey(request, config);
+    if (!apiKey) {
+      return reply.code(400).send({ error: "OPENROUTER_API_KEY is not configured" });
+    }
+    const client = new OpenRouterClient({ apiKey });
+    try {
+      const templateKind = requestBody.templateKind as DirectionTemplateKind;
+      const characterId = readCharacterId(request.body) ?? readCharacterId(request.headers);
+      const providerResponse = await client.createImage(buildImageGenerationPayload(input));
+      const result = await storeGeneratedFirstFrame(
+        providerResponse,
+        config,
+        publicBaseResult.publicBase,
+        {
+          apiKey,
+          fileName: `generated-${templateKind}-4dir.png`,
+          characterId,
+          characterTarget: getDirectionTemplateCharacterTarget(templateKind),
+          publicServerBase: resolvePublicServerBaseUrl(request.headers["x-public-asset-base-url"], config)
+        }
+      );
+      if (templateKind === "walk" && characterId && !("error" in result)) {
+        await removeCharacterFilesByStem(config.storageDir, characterId, ["base-character", "direction-templates"], "idle-4dir");
+      }
+      return result;
+    } catch (error: unknown) {
+      return sendGenerationError(error, reply);
+    }
+  });
+
+  app.post("/api/generation/advanced-action-midframe", async (request, reply) => {
+    const requestBody = request.body as AdvancedActionMidframeGenerationInput;
+    const publicBaseResult = resolvePublicAssetBaseUrl(request.headers["x-public-asset-base-url"], config);
+    if ("error" in publicBaseResult) {
+      return reply.code(400).send({ error: publicBaseResult.error });
+    }
+    const input = buildAdvancedActionMidframePayloadInput(requestBody);
+    if ("error" in input) {
+      return reply.code(400).send({ error: input.error });
+    }
+    const characterId = readCharacterId(request.body) ?? readCharacterId(request.headers);
+    if (!characterId) {
+      return reply.code(400).send({ error: "characterId is required" });
+    }
+    if (isLocalCodexImageModel(requestBody.model)) {
+      try {
+        const localResult = await runLocalCodexAdvancedActionMidframeGeneration(requestBody, config);
+        return await storeGeneratedFirstFrame(
+          localCodexResultToProviderResponse(localResult),
+          config,
+          publicBaseResult.publicBase,
+          {
+            fileName: "middle-4dir.png",
+            characterId,
+            characterTarget: "attack-middle-4dir",
+            publicServerBase: resolvePublicServerBaseUrl(request.headers["x-public-asset-base-url"], config)
+          }
+        );
+      } catch (error: unknown) {
+        return sendGenerationError(error, reply);
+      }
+    }
+    const apiKey = resolveOpenRouterApiKey(request, config);
+    if (!apiKey) {
+      return reply.code(400).send({ error: "OPENROUTER_API_KEY is not configured" });
+    }
+    const client = new OpenRouterClient({ apiKey });
+    try {
+      const providerResponse = await client.createImage(buildImageGenerationPayload(input));
+      return await storeGeneratedFirstFrame(
+        providerResponse,
+        config,
+        publicBaseResult.publicBase,
+        {
+          apiKey,
+          fileName: "middle-4dir.png",
+          characterId,
+          characterTarget: "attack-middle-4dir",
+          publicServerBase: resolvePublicServerBaseUrl(request.headers["x-public-asset-base-url"], config)
+        }
+      );
     } catch (error: unknown) {
       return sendGenerationError(error, reply);
     }
@@ -50,6 +271,10 @@ export function registerGenerationRoutes(app: FastifyInstance, config: AppConfig
     const urlError = validatePublicHttpsImageUrl(input.firstFrameUrl);
     if (urlError) {
       return reply.code(400).send({ error: urlError });
+    }
+    const imageAccessError = await validatePublicImageUrlContent(input.firstFrameUrl);
+    if (imageAccessError) {
+      return reply.code(400).send({ error: imageAccessError });
     }
     const client = new OpenRouterClient({ apiKey });
     try {
@@ -72,17 +297,245 @@ export function registerGenerationRoutes(app: FastifyInstance, config: AppConfig
     const client = new OpenRouterClient({ apiKey });
     try {
       const providerResponse = await client.getVideoJob(jobId);
-      return await storeVideoJobStatus(jobId, providerResponse, config, apiKey);
+      return await storeVideoJobStatus(jobId, providerResponse, config, apiKey, {
+        characterId: readCharacterId(request.query) ?? readCharacterId(request.headers),
+        actionKind: readActionKind(request.query) ?? readActionKind(request.headers)
+      });
     } catch (error: unknown) {
       return sendGenerationError(error, reply);
     }
   });
 }
 
+async function withBuiltInStyleReference(
+  input: Parameters<typeof buildImageGenerationPayload>[0],
+  config: Pick<AppConfig, "storageDir">
+): Promise<Parameters<typeof buildImageGenerationPayload>[0]> {
+  if (input.styleReferenceImageDataUrl) {
+    return input;
+  }
+  return {
+    ...input,
+    styleReferenceImageDataUrl: await readBuiltInStyleReferenceDataUrl(config)
+  };
+}
+
+async function readBuiltInStyleReferenceDataUrl(config: Pick<AppConfig, "storageDir">): Promise<string> {
+  const buffer = await readBuiltInStyleReferenceBuffer(config);
+  return `data:${BUILT_IN_STYLE_REFERENCE_CONTENT_TYPE};base64,${buffer.toString("base64")}`;
+}
+
+async function readBuiltInStyleReferenceBuffer(config: Pick<AppConfig, "storageDir">): Promise<Buffer> {
+  return readModule01ReferenceImageBuffer(config.storageDir, "style");
+}
+
+async function buildDirectionTemplatePayloadInput(
+  input: DirectionTemplateGenerationInput,
+  config: Pick<AppConfig, "storageDir">
+): Promise<BuildImageGenerationPayloadInput | { error: string }> {
+  if (!isDirectionTemplateKind(input.templateKind)) {
+    return { error: "templateKind must be idle, walk, or run" };
+  }
+  if (!input.characterTemplateImageDataUrl) {
+    return { error: "characterTemplateImageDataUrl is required" };
+  }
+  return {
+    model: input.model,
+    prompt: input.prompt,
+    targetSize: input.targetSize,
+    keyColor: input.keyColor,
+    seed: input.seed,
+    imageDataUrls: [
+      input.characterTemplateImageDataUrl,
+      await readBuiltInDirectionReferenceDataUrl(input.templateKind, config)
+    ]
+  };
+}
+
+function buildAdvancedActionMidframePayloadInput(
+  input: AdvancedActionMidframeGenerationInput
+): BuildImageGenerationPayloadInput | { error: string } {
+  if (input.actionKind !== "attack-1") {
+    return { error: "actionKind must be attack-1" };
+  }
+  if (!input.startFrameImageDataUrl) {
+    return { error: "startFrameImageDataUrl is required" };
+  }
+  return {
+    model: input.model,
+    prompt: input.prompt,
+    targetSize: input.targetSize,
+    keyColor: input.keyColor,
+    seed: input.seed,
+    imageDataUrls: [
+      input.startFrameImageDataUrl
+    ]
+  };
+}
+
+async function runLocalCodexFirstFrameGeneration(
+  input: BuildImageGenerationPayloadInput,
+  config: AppConfig
+): Promise<LocalCodexImageGenerationResult> {
+  const imageSources = input.imageDataUrls
+    ? input.imageDataUrls.map((dataUrl) => ({ dataUrl }))
+    : [
+        input.styleReferenceImageDataUrl
+          ? { dataUrl: input.styleReferenceImageDataUrl }
+          : { filePath: resolveModule01ReferenceImagePath(config.storageDir, "style") },
+        input.referenceImageDataUrl ? { dataUrl: input.referenceImageDataUrl } : undefined
+      ];
+  return withLocalCodexImageSources(
+    imageSources,
+    async (imagePaths) => runLocalCodexImageGeneration({
+      model: input.model,
+      prompt: input.prompt,
+      targetSize: input.targetSize,
+      keyColor: input.keyColor,
+      imagePaths,
+      workingDirectory: process.cwd()
+    }, config)
+  );
+}
+
+async function runLocalCodexDirectionTemplateGeneration(
+  input: DirectionTemplateGenerationInput,
+  config: AppConfig
+): Promise<LocalCodexImageGenerationResult> {
+  if (!isDirectionTemplateKind(input.templateKind)) {
+    throw new Error("templateKind must be idle, walk, or run");
+  }
+  if (!input.characterTemplateImageDataUrl) {
+    throw new Error("characterTemplateImageDataUrl is required");
+  }
+  return withLocalCodexImageSources(
+    [
+      { dataUrl: input.characterTemplateImageDataUrl },
+      { filePath: resolveModule01ReferenceImagePath(config.storageDir, input.templateKind) }
+    ],
+    async (imagePaths) => runLocalCodexImageGeneration({
+      model: input.model,
+      prompt: input.prompt,
+      targetSize: input.targetSize,
+      keyColor: input.keyColor,
+      imagePaths,
+      workingDirectory: process.cwd()
+    }, config)
+  );
+}
+
+async function runLocalCodexAdvancedActionMidframeGeneration(
+  input: AdvancedActionMidframeGenerationInput,
+  config: AppConfig
+): Promise<LocalCodexImageGenerationResult> {
+  if (input.actionKind !== "attack-1") {
+    throw new Error("actionKind must be attack-1");
+  }
+  if (!input.startFrameImageDataUrl) {
+    throw new Error("startFrameImageDataUrl is required");
+  }
+  return withLocalCodexImageSources(
+    [
+      { dataUrl: input.startFrameImageDataUrl }
+    ],
+    async (imagePaths) => runLocalCodexImageGeneration({
+      model: input.model,
+      prompt: input.prompt,
+      targetSize: input.targetSize,
+      keyColor: input.keyColor,
+      imagePaths,
+      workingDirectory: process.cwd()
+    }, config)
+  );
+}
+
+async function runLocalCodexImageGeneration(
+  input: LocalCodexImageGenerationInput,
+  config: AppConfig
+): Promise<LocalCodexImageGenerationResult> {
+  const generator = config.localCodexImageGenerator ?? generateLocalCodexImage;
+  return generator(input);
+}
+
+type LocalCodexImageSource = { dataUrl: string } | { filePath: string } | undefined;
+
+async function withLocalCodexImageSources<T>(
+  sources: readonly LocalCodexImageSource[],
+  callback: (imagePaths: string[]) => Promise<T>
+): Promise<T> {
+  const tempDir = await mkdtemp(join(tmpdir(), "ai-game-workbench-local-codex-input-"));
+  try {
+    const imagePaths: string[] = [];
+    for (const source of sources) {
+      if (!source) {
+        continue;
+      }
+      if ("filePath" in source) {
+        imagePaths.push(source.filePath);
+      } else if (source.dataUrl.trim()) {
+        imagePaths.push(await writeDataUrlImageToTempFile(source.dataUrl, tempDir, imagePaths.length));
+      }
+    }
+    return await callback(imagePaths);
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+}
+
+async function writeDataUrlImageToTempFile(dataUrl: string, tempDir: string, index: number): Promise<string> {
+  const image = parseDataUrlImage(dataUrl);
+  const filePath = join(tempDir, `input-${index}.${image.extension}`);
+  await writeFile(filePath, image.buffer);
+  return filePath;
+}
+
+function localCodexResultToProviderResponse(result: LocalCodexImageGenerationResult): Record<string, unknown> {
+  return {
+    ...result.providerResponse,
+    imageUrl: `data:image/${result.extension};base64,${result.buffer.toString("base64")}`
+  };
+}
+
+function isDirectionTemplateKind(kind: string | undefined): kind is DirectionTemplateKind {
+  return kind === "idle" || kind === "walk" || kind === "run";
+}
+
+function getDirectionTemplateCharacterTarget(kind: DirectionTemplateKind): CharacterImageTarget {
+  if (kind === "idle") {
+    return "idle-4dir";
+  }
+  if (kind === "run") {
+    return "run-4dir";
+  }
+  return "walk-4dir";
+}
+
+async function readBuiltInDirectionReferenceDataUrl(
+  kind: DirectionTemplateKind,
+  config: Pick<AppConfig, "storageDir">
+): Promise<string> {
+  const buffer = await readBuiltInDirectionReferenceBuffer(kind, config);
+  return `data:${BUILT_IN_STYLE_REFERENCE_CONTENT_TYPE};base64,${buffer.toString("base64")}`;
+}
+
+async function readBuiltInDirectionReferenceBuffer(
+  kind: DirectionTemplateKind,
+  config: Pick<AppConfig, "storageDir">
+): Promise<Buffer> {
+  return readModule01ReferenceImageBuffer(config.storageDir, kind);
+}
+
 async function storeGeneratedFirstFrame(
   providerResponse: unknown,
   config: Pick<AppConfig, "storageDir">,
-  publicBase: string
+  publicBase: string,
+  options: {
+    fileName?: string;
+    apiKey?: string;
+    characterId?: string;
+    characterTarget?: CharacterImageTarget;
+    publicServerBase?: { publicBase: string; error?: undefined } | { publicBase?: undefined; error: string };
+  } = {}
 ) {
   const imageSource = extractImageSource(providerResponse);
   if (!imageSource) {
@@ -91,7 +544,30 @@ async function storeGeneratedFirstFrame(
       providerResponse
     };
   }
-  const image = await resolveImageBuffer(imageSource);
+  const image = await resolveImageBuffer(imageSource, options.apiKey);
+  if (options.characterId) {
+    if (options.publicServerBase && "error" in options.publicServerBase) {
+      return { error: options.publicServerBase.error };
+    }
+    const target = resolveCharacterImageTarget(options.characterTarget);
+    await ensureCharacterFolder(config.storageDir, options.characterId);
+    await removeCharacterFilesByStem(config.storageDir, options.characterId, target.directory, target.stem);
+    const storedName = `${target.stem}.${image.extension}`;
+    const directory = resolveCharacterPath(config.storageDir, options.characterId, ...target.directory);
+    const localPath = resolveCharacterPath(config.storageDir, options.characterId, ...target.directory, storedName);
+    await mkdir(directory, { recursive: true });
+    await writeFile(localPath, image.buffer);
+    const localUrl = toCharacterUrl(options.characterId, ...target.directory, storedName);
+    return {
+      fileName: target.fileName,
+      storedName,
+      localPath,
+      imageUrl: localUrl,
+      localUrl,
+      publicUrl: `${options.publicServerBase?.publicBase ?? publicBase.replace(/\/assets$/, "")}${localUrl}`,
+      providerResponse
+    };
+  }
   const storedName = `${randomUUID()}.${image.extension}`;
   const assetDir = join(config.storageDir, "assets");
   const localPath = join(assetDir, storedName);
@@ -99,7 +575,7 @@ async function storeGeneratedFirstFrame(
   await writeFile(localPath, image.buffer);
 
   return {
-    fileName: "generated-first-frame.png",
+    fileName: options.fileName ?? "generated-first-frame.png",
     storedName,
     localPath,
     imageUrl: `/assets/${storedName}`,
@@ -113,19 +589,32 @@ async function storeVideoJobStatus(
   jobId: string,
   providerResponse: unknown,
   config: Pick<AppConfig, "storageDir">,
-  apiKey: string
+  apiKey: string,
+  options: {
+    characterId?: string;
+    actionKind?: AdvancedActionKind;
+  } | string | undefined
 ) {
-  const jobDir = join(config.storageDir, "jobs", jobId);
+  const resolvedOptions = typeof options === "string" ? { characterId: options } : options ?? {};
+  const { characterId, actionKind } = resolvedOptions;
+  const videoDirectory = actionKind
+    ? ["advanced-character", actionKind, "video"]
+    : ["base-character", "walk-video"];
+  const jobDir = characterId
+    ? resolveCharacterPath(config.storageDir, characterId, ...videoDirectory)
+    : join(config.storageDir, "jobs", jobId);
   await mkdir(jobDir, { recursive: true });
   const status = normalizeVideoStatus(providerResponse);
   const videoUrl = extractVideoUrl(providerResponse);
   let localVideoUrl: string | undefined;
   if (status === "completed" && videoUrl) {
     const localPath = join(jobDir, "source.mp4");
-    if (!existsSync(localPath)) {
+    if (!existsSync(localPath) || characterId) {
       await downloadToFile(videoUrl, localPath, apiKey);
     }
-    localVideoUrl = `/jobs/${jobId}/source.mp4`;
+    localVideoUrl = characterId
+      ? toCharacterUrl(characterId, ...videoDirectory, "source.mp4")
+      : `/jobs/${jobId}/source.mp4`;
   }
 
   const body = {
@@ -135,8 +624,77 @@ async function storeVideoJobStatus(
     localVideoUrl,
     providerResponse
   };
-  await writeFile(join(jobDir, "status.json"), JSON.stringify(body, null, 2), "utf8");
   return body;
+}
+
+type CharacterImageTarget = "base-template-output" | "idle-4dir" | "walk-4dir" | "run-4dir" | "attack-middle-4dir";
+
+function resolveCharacterImageTarget(target: CharacterImageTarget | undefined): {
+  directory: string[];
+  stem: string;
+  fileName: string;
+} {
+  if (target === "idle-4dir") {
+    return { directory: ["base-character", "direction-templates"], stem: "idle-4dir", fileName: "idle-4dir.png" };
+  }
+  if (target === "walk-4dir") {
+    return { directory: ["base-character", "direction-templates"], stem: "walk-4dir", fileName: "walk-4dir.png" };
+  }
+  if (target === "run-4dir") {
+    return { directory: ["advanced-character", "run"], stem: "keyframe-4dir", fileName: "run-4dir.png" };
+  }
+  if (target === "attack-middle-4dir") {
+    return { directory: ["advanced-character", "attack-1", "midframe"], stem: "middle-4dir", fileName: "middle-4dir.png" };
+  }
+  return { directory: ["base-template"], stem: "output", fileName: "output.png" };
+}
+
+function readCharacterId(input: unknown): string | undefined {
+  if (!input || typeof input !== "object") {
+    return undefined;
+  }
+  const value = (input as { characterId?: unknown }).characterId;
+  if (typeof value === "string" && value.trim()) {
+    return value.trim();
+  }
+  const headerValue = (input as { "x-character-id"?: unknown })["x-character-id"];
+  if (typeof headerValue === "string" && headerValue.trim()) {
+    return decodeCharacterHeaderValue(headerValue.trim());
+  }
+  if (Array.isArray(headerValue) && typeof headerValue[0] === "string" && headerValue[0].trim()) {
+    return decodeCharacterHeaderValue(headerValue[0].trim());
+  }
+  return undefined;
+}
+
+function readActionKind(input: unknown): AdvancedActionKind | undefined {
+  if (!input || typeof input !== "object") {
+    return undefined;
+  }
+  const value = (input as { actionKind?: unknown }).actionKind;
+  if (typeof value === "string" && isAdvancedActionKind(value.trim())) {
+    return value.trim() as AdvancedActionKind;
+  }
+  const headerValue = (input as { "x-character-action-kind"?: unknown })["x-character-action-kind"];
+  if (typeof headerValue === "string" && isAdvancedActionKind(headerValue.trim())) {
+    return headerValue.trim() as AdvancedActionKind;
+  }
+  if (Array.isArray(headerValue) && typeof headerValue[0] === "string" && isAdvancedActionKind(headerValue[0].trim())) {
+    return headerValue[0].trim() as AdvancedActionKind;
+  }
+  return undefined;
+}
+
+function isAdvancedActionKind(value: string): value is AdvancedActionKind {
+  return value === "run" || value === "attack-1" || value === "jump";
+}
+
+function decodeCharacterHeaderValue(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
 }
 
 function resolveOpenRouterApiKey(
@@ -170,6 +728,44 @@ function validatePublicHttpsImageUrl(value: unknown): string | undefined {
     return "OpenRouter 视频首帧需要公网 HTTPS 图片 URL；当前地址是本机或内网地址，OpenRouter 云端无法访问。";
   }
   return undefined;
+}
+
+async function validatePublicImageUrlContent(value: string): Promise<string | undefined> {
+  let response: Response;
+  try {
+    response = await fetch(value, { method: "GET" });
+  } catch (error: unknown) {
+    return `公网图片 URL 无法访问，视频模型也无法读取首帧：${error instanceof Error ? error.message : String(error)}`;
+  }
+
+  const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
+  if (!response.ok) {
+    const preview = await readResponsePreview(response);
+    return [
+      `公网图片 URL 无法访问，HTTP ${response.status}。`,
+      preview ? `返回内容：${preview}` : ""
+    ].filter(Boolean).join(" ");
+  }
+
+  if (!contentType.startsWith("image/")) {
+    const preview = await readResponsePreview(response);
+    return [
+      `公网图片 URL 返回的不是图片（Content-Type: ${contentType || "未知"}）。`,
+      preview ? `返回内容：${preview}` : "",
+      preview.includes("ERR_NGROK_6024") ? "检测到 ngrok 免费警告页，请换成可被模型直接读取的图片直链。" : ""
+    ].filter(Boolean).join(" ");
+  }
+
+  await response.body?.cancel();
+  return undefined;
+}
+
+async function readResponsePreview(response: Response): Promise<string> {
+  try {
+    return (await response.text()).replace(/\s+/g, " ").trim().slice(0, 220);
+  } catch {
+    return "";
+  }
 }
 
 function validateJobId(jobId: string): string | undefined {
@@ -295,7 +891,7 @@ function findStringValue(value: unknown, keys: readonly string[]): string | unde
   return undefined;
 }
 
-async function resolveImageBuffer(source: string): Promise<{ buffer: Buffer; extension: "png" | "jpg" | "webp" }> {
+async function resolveImageBuffer(source: string, apiKey?: string): Promise<{ buffer: Buffer; extension: "png" | "jpg" | "webp" }> {
   if (source.startsWith("data:")) {
     return parseDataUrlImage(source);
   }
@@ -305,7 +901,9 @@ async function resolveImageBuffer(source: string): Promise<{ buffer: Buffer; ext
       extension: "png"
     };
   }
-  const response = await fetch(source);
+  const response = await fetch(source, {
+    headers: buildProviderDownloadHeaders(source, apiKey)
+  });
   if (!response.ok) {
     throw new Error(`下载生成图片失败：${response.status}`);
   }
@@ -339,7 +937,7 @@ function extensionFromContentType(contentType: string): "png" | "jpg" | "webp" {
 
 async function downloadToFile(url: string, localPath: string, apiKey: string): Promise<void> {
   const response = await fetch(url, {
-    headers: buildVideoDownloadHeaders(url, apiKey)
+    headers: buildProviderDownloadHeaders(url, apiKey)
   });
   if (!response.ok) {
     throw new Error(`下载视频失败：${response.status}`);
@@ -347,13 +945,11 @@ async function downloadToFile(url: string, localPath: string, apiKey: string): P
   await writeFile(localPath, Buffer.from(await response.arrayBuffer()));
 }
 
-function buildVideoDownloadHeaders(url: string, apiKey: string): HeadersInit | undefined {
+function buildProviderDownloadHeaders(url: string, apiKey?: string): HeadersInit | undefined {
   try {
     const parsed = new URL(url);
     if (parsed.hostname === "openrouter.ai" || parsed.hostname.endsWith(".openrouter.ai")) {
-      return {
-        Authorization: `Bearer ${apiKey}`
-      };
+      return apiKey ? { Authorization: `Bearer ${apiKey}` } : undefined;
     }
   } catch {
     return undefined;
@@ -381,5 +977,7 @@ function sendGenerationError(error: unknown, reply: { code: (statusCode: number)
       providerStatus: error.statusCode
     });
   }
-  throw error;
+  return reply.code(500).send({
+    error: error instanceof Error ? error.message : String(error)
+  });
 }

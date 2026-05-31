@@ -1,5 +1,6 @@
 import { resolve } from "node:path";
 import ffmpegStaticPath from "ffmpeg-static";
+import type { LocalCodexImageGenerator } from "./providers/localCodex";
 
 export interface AppConfig {
   openRouterApiKey?: string;
@@ -7,6 +8,7 @@ export interface AppConfig {
   ffmpegPath: string;
   storageDir: string;
   port: number;
+  localCodexImageGenerator?: LocalCodexImageGenerator;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {

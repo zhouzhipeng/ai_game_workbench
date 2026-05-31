@@ -1,14 +1,10 @@
-import {
-  CHARACTER_DIRECTION_LABELS,
-  type CharacterDirection
-} from "@ai-game-workbench/core";
-
 export interface BuildImageGenerationPayloadInput {
   model: string;
   prompt: string;
   targetSize: number;
   keyColor: string;
-  direction: CharacterDirection;
+  imageDataUrls?: readonly string[];
+  styleReferenceImageDataUrl?: string;
   referenceImageDataUrl?: string;
   seed?: number;
 }
@@ -17,7 +13,9 @@ export interface BuildVideoGenerationPayloadInput {
   model: string;
   prompt: string;
   firstFrameUrl: string;
+  inputReferenceUrls?: readonly string[];
   durationSeconds?: number;
+  resolution?: "480p" | "720p" | "1080p" | string;
 }
 
 export interface OpenRouterClientOptions {
@@ -39,25 +37,18 @@ export class OpenRouterError extends Error {
 }
 
 export function buildImageGenerationPayload(input: BuildImageGenerationPayloadInput) {
-  const text = [
-    "生成一张用于2D游戏精灵动画的正方形像素风首帧。",
-    `角色：${input.prompt}`,
-    `画布：${input.targetSize}x${input.targetSize}`,
-    `朝向：${CHARACTER_DIRECTION_LABELS[input.direction]}`,
-    "单个全身角色，居中，轮廓清晰",
-    `纯色 ${input.keyColor} 背景`,
-    "无阴影、无地面、无粒子、无文字、无UI",
-    "如果提供参考图，保留角色身份、服装颜色和主要轮廓，并转换为正方形像素风。"
-  ].join(" ");
-  const content = input.referenceImageDataUrl
+  const text = input.prompt;
+  const imageInputs = (input.imageDataUrls ?? [input.styleReferenceImageDataUrl, input.referenceImageDataUrl])
+    .filter((url): url is string => typeof url === "string" && url.trim().length > 0);
+  const content = imageInputs.length > 0
     ? [
         { type: "text" as const, text },
-        {
+        ...imageInputs.map((url) => ({
           type: "image_url" as const,
           image_url: {
-            url: input.referenceImageDataUrl
+            url
           }
-        }
+        }))
       ]
     : text;
 
@@ -70,7 +61,7 @@ export function buildImageGenerationPayload(input: BuildImageGenerationPayloadIn
       }
     ],
     modalities: getImageGenerationModalities(input.model),
-    ...buildImageConfig(input.model),
+    ...buildImageConfig(input.model, input.targetSize),
     stream: false,
     ...(input.seed === undefined ? {} : { seed: input.seed })
   };
@@ -80,20 +71,36 @@ function getImageGenerationModalities(model: string) {
   return isImageOnlyModel(model) ? (["image"] as const) : (["image", "text"] as const);
 }
 
-function buildImageConfig(model: string) {
+function buildImageConfig(model: string, targetSize: number) {
   if (!supportsImageConfig(model)) {
     return {};
   }
   return {
     image_config: {
       aspect_ratio: "1:1" as const,
-      image_size: "1K" as const
+      image_size: getOpenRouterImageSize(model, targetSize)
     }
   };
 }
 
 function supportsImageConfig(model: string): boolean {
-  return model.startsWith("google/gemini-");
+  return model === "openai/gpt-5.4-image-2" || model.startsWith("google/gemini-");
+}
+
+function getOpenRouterImageSize(model: string, targetSize: number) {
+  if (model.includes("gemini-2.5-flash-image")) {
+    return "1K" as const;
+  }
+  if (targetSize <= 512 && model === "google/gemini-3.1-flash-image-preview") {
+    return "0.5K" as const;
+  }
+  if (targetSize <= 1024) {
+    return "1K" as const;
+  }
+  if (targetSize <= 2048) {
+    return "2K" as const;
+  }
+  return "4K" as const;
 }
 
 function isImageOnlyModel(model: string): boolean {
@@ -107,11 +114,21 @@ function isImageOnlyModel(model: string): boolean {
 }
 
 export function buildVideoGenerationPayload(input: BuildVideoGenerationPayloadInput) {
+  const inputReferences = input.inputReferenceUrls
+    ?.map((url) => url.trim())
+    .filter((url) => url.length > 0)
+    .map((url) => ({
+      type: "image_url" as const,
+      image_url: {
+        url
+      }
+    }));
+
   return {
     model: input.model,
     prompt: input.prompt,
     duration: input.durationSeconds ?? getShortestVideoDurationSeconds(input.model),
-    resolution: "720p" as const,
+    resolution: input.resolution ?? ("720p" as const),
     aspect_ratio: "1:1" as const,
     generate_audio: false,
     frame_images: [
@@ -122,7 +139,8 @@ export function buildVideoGenerationPayload(input: BuildVideoGenerationPayloadIn
         },
         frame_type: "first_frame" as const
       }
-    ]
+    ],
+    ...(inputReferences && inputReferences.length > 0 ? { input_references: inputReferences } : {})
   };
 }
 
@@ -131,6 +149,7 @@ export function getShortestVideoDurationSeconds(model: string): number {
     "bytedance/seedance-2.0": 4,
     "bytedance/seedance-2.0-fast": 4,
     "bytedance/seedance-1-5-pro": 4,
+    "x-ai/grok-imagine-video": 1,
     "kwaivgi/kling-v3.0-std": 3,
     "kwaivgi/kling-v3.0-pro": 3,
     "kwaivgi/kling-video-o1": 5

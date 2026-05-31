@@ -35,7 +35,7 @@ export function ExportPanel(props: ExportPanelProps) {
           <input
             type="number"
             min={1}
-            max={60}
+            max={300}
             value={props.fps}
             onChange={(event) => props.onFpsChange(Number(event.target.value))}
           />

@@ -5,13 +5,20 @@ import {
 } from "../src/providers/openRouter";
 
 describe("buildImageGenerationPayload", () => {
-  it("builds an OpenRouter image generation payload with Chinese prompt instructions", () => {
+  it("uses the final first-frame prompt without backend style or direction text", () => {
+    const prompt = [
+      "高清日系二次元动画风，干净线稿，赛璐璐上色。",
+      "单个全身角色居中，纯色抠图背景。",
+      "自定义需求：蓝色铠甲女主角",
+      "画布：768x768",
+      "背景色：#00ff00"
+    ].join("\n\n");
     const payload = buildImageGenerationPayload({
       model: "google/gemini-3.1-flash-image-preview",
-      prompt: "蓝色铠甲女主角",
+      prompt,
       targetSize: 768,
       keyColor: "#00ff00",
-      direction: "front",
+      styleReferenceImageDataUrl: "data:image/png;base64,style123",
       referenceImageDataUrl: "data:image/webp;base64,abc123",
       seed: 123
     });
@@ -25,7 +32,13 @@ describe("buildImageGenerationPayload", () => {
     expect(payload.messages[0]?.content).toEqual([
       expect.objectContaining({
         type: "text",
-        text: expect.stringContaining("蓝色铠甲女主角")
+        text: prompt
+      }),
+      expect.objectContaining({
+        type: "image_url",
+        image_url: {
+          url: "data:image/png;base64,style123"
+        }
       }),
       expect.objectContaining({
         type: "image_url",
@@ -34,9 +47,8 @@ describe("buildImageGenerationPayload", () => {
         }
       })
     ]);
-    expect(payload.messages[0]?.content[0]?.text).toContain("768x768");
-    expect(payload.messages[0]?.content[0]?.text).toContain("正面");
-    expect(payload.messages[0]?.content[0]?.text).toContain("纯色 #00ff00 背景");
+    expect(payload.messages[0]?.content[0]?.text).not.toContain("朝向");
+    expect(payload.messages[0]?.content[0]?.text).not.toContain("像素风");
     expect(payload.seed).toBe(123);
   });
 
@@ -45,27 +57,28 @@ describe("buildImageGenerationPayload", () => {
       model: "bytedance-seed/seedream-4.5",
       prompt: "正面像素角色",
       targetSize: 512,
-      keyColor: "#00ff00",
-      direction: "front"
+      keyColor: "#00ff00"
     });
 
     expect(payload.modalities).toEqual(["image"]);
     expect(payload).not.toHaveProperty("image_config");
   });
 
-  it("uses the OpenRouter GPT Image 2 chat payload without Gemini-only image config", () => {
+  it("uses the selected square size for GPT Image 2", () => {
     const payload = buildImageGenerationPayload({
       model: "openai/gpt-5.4-image-2",
       prompt: "正面像素角色",
-      targetSize: 512,
+      targetSize: 2048,
       keyColor: "#00ff00",
-      direction: "front",
       referenceImageDataUrl: "data:image/png;base64,abc123"
     });
 
     expect(payload.model).toBe("openai/gpt-5.4-image-2");
     expect(payload.modalities).toEqual(["image", "text"]);
-    expect(payload).not.toHaveProperty("image_config");
+    expect(payload.image_config).toEqual({
+      aspect_ratio: "1:1",
+      image_size: "2K"
+    });
     expect(payload.messages[0]?.content).toEqual([
       expect.objectContaining({ type: "text" }),
       expect.objectContaining({
@@ -75,7 +88,56 @@ describe("buildImageGenerationPayload", () => {
         }
       })
     ]);
+    expect(payload.messages[0]?.content[0]?.text).toBe("正面像素角色");
   });
+
+  it("uses the selected 4K square size for Nano Banana 2", () => {
+    const payload = buildImageGenerationPayload({
+      model: "google/gemini-3.1-flash-image-preview",
+      prompt: "正面像素角色",
+      targetSize: 4096,
+      keyColor: "#00ff00"
+    });
+
+    expect(payload.image_config).toEqual({
+      aspect_ratio: "1:1",
+      image_size: "4K"
+    });
+    expect(payload.messages[0]?.content).toBe("正面像素角色");
+  });
+
+  it("keeps explicit multi-image inputs in the supplied order", () => {
+    const payload = buildImageGenerationPayload({
+      model: "openai/gpt-5.4-image-2",
+      prompt: "四方向待机精灵图",
+      targetSize: 1024,
+      keyColor: "#00ff00",
+      imageDataUrls: [
+        "data:image/png;base64,character-template",
+        "data:image/png;base64,idle-reference"
+      ]
+    });
+
+    expect(payload.messages[0]?.content).toEqual([
+      expect.objectContaining({
+        type: "text",
+        text: "四方向待机精灵图"
+      }),
+      expect.objectContaining({
+        type: "image_url",
+        image_url: {
+          url: "data:image/png;base64,character-template"
+        }
+      }),
+      expect.objectContaining({
+        type: "image_url",
+        image_url: {
+          url: "data:image/png;base64,idle-reference"
+        }
+      })
+    ]);
+  });
+
 });
 
 describe("buildVideoGenerationPayload", () => {
@@ -121,5 +183,44 @@ describe("buildVideoGenerationPayload", () => {
     });
     expect(payload).not.toHaveProperty("size");
     expect(payload).not.toHaveProperty("seed");
+  });
+
+  it("passes selected Grok video duration and resolution", () => {
+    const payload = buildVideoGenerationPayload({
+      model: "x-ai/grok-imagine-video",
+      prompt: "2D角色向下行走循环",
+      firstFrameUrl: "https://example.com/first-frame.png",
+      durationSeconds: 2,
+      resolution: "480p"
+    });
+
+    expect(payload).toMatchObject({
+      model: "x-ai/grok-imagine-video",
+      duration: 2,
+      resolution: "480p",
+      aspect_ratio: "1:1",
+      generate_audio: false
+    });
+  });
+
+  it("passes optional input reference images for video generation", () => {
+    const payload = buildVideoGenerationPayload({
+      model: "bytedance/seedance-2.0",
+      prompt: "2D character attack action",
+      firstFrameUrl: "https://example.com/attack-start.png",
+      inputReferenceUrls: [
+        "https://example.com/weapon-reference.png",
+        "   "
+      ]
+    });
+
+    expect(payload.input_references).toEqual([
+      {
+        type: "image_url",
+        image_url: {
+          url: "https://example.com/weapon-reference.png"
+        }
+      }
+    ]);
   });
 });

@@ -15,6 +15,68 @@ afterEach(async () => {
 });
 
 describe("asset routes", () => {
+  it("creates and lists character folders without metadata files", async () => {
+    const app = createApp({
+      storageDir: tempDir,
+      port: 8787
+    });
+
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/api/characters",
+      payload: { name: "hero" }
+    });
+    const listResponse = await app.inject({
+      method: "GET",
+      url: "/api/characters"
+    });
+
+    expect(createResponse.statusCode).toBe(201);
+    expect(createResponse.json()).toEqual({ id: "hero", name: "hero" });
+    expect(listResponse.json()).toEqual({ characters: [{ id: "hero", name: "hero" }] });
+    await expect(readFile(join(tempDir, "characters", "hero", "character.json"))).rejects.toThrow();
+  });
+
+  it("uploads a character reference into the selected character folder", async () => {
+    const app = createApp({
+      storageDir: tempDir,
+      port: 8787
+    });
+    await app.inject({
+      method: "POST",
+      url: "/api/characters",
+      payload: { name: "hero" }
+    });
+    const boundary = "----ai-game-workbench-test";
+    const payload = [
+      `--${boundary}`,
+      'Content-Disposition: form-data; name="file"; filename="hero.png"',
+      "Content-Type: image/png",
+      "",
+      "fake-png-bytes",
+      `--${boundary}--`,
+      ""
+    ].join("\r\n");
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/assets/first-frame",
+      headers: {
+        "content-type": `multipart/form-data; boundary=${boundary}`,
+        "x-public-asset-base-url": "https://asset-tunnel.example.com",
+        "x-character-id": "hero"
+      },
+      payload
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      localUrl: "/characters/hero/base-template/character-reference.png",
+      publicUrl: "https://asset-tunnel.example.com/characters/hero/base-template/character-reference.png"
+    });
+    expect(await readFile(join(tempDir, "characters", "hero", "base-template", "character-reference.png"), "utf8")).toBe("fake-png-bytes");
+  });
+
   it("uploads a first-frame image and returns a public asset URL", async () => {
     const app = createApp({
       storageDir: tempDir,
@@ -140,5 +202,45 @@ describe("asset routes", () => {
     expect(body.jobId).toMatch(/^local-video-/);
     expect(body.localVideoUrl).toBe(`/jobs/${body.jobId}/source.mp4`);
     expect(await readFile(body.localPath, "utf8")).toBe("fake-video-bytes");
+  });
+
+  it("uploads a character frame-processing video without putting the character name in the job id", async () => {
+    const app = createApp({
+      storageDir: tempDir,
+      port: 8787
+    });
+    await app.inject({
+      method: "POST",
+      url: "/api/characters",
+      payload: { name: "测试角色" }
+    });
+    const boundary = "----ai-game-workbench-test";
+    const payload = [
+      `--${boundary}`,
+      'Content-Disposition: form-data; name="file"; filename="source.mp4"',
+      "Content-Type: video/mp4",
+      "",
+      "fake-video-bytes",
+      `--${boundary}--`,
+      ""
+    ].join("\r\n");
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/assets/frame-video",
+      headers: {
+        "content-type": `multipart/form-data; boundary=${boundary}`,
+        "x-character-id": encodeURIComponent("测试角色")
+      },
+      payload
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    expect(body.jobId).toMatch(/^local-video-[0-9a-f-]+$/);
+    expect(body.localVideoUrl).toBe("/characters/%E6%B5%8B%E8%AF%95%E8%A7%92%E8%89%B2/base-character/walk-video/source.mp4");
+    expect(await readFile(join(tempDir, "characters", "测试角色", "base-character", "walk-video", "source.mp4"), "utf8")).toBe(
+      "fake-video-bytes"
+    );
   });
 });

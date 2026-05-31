@@ -3,29 +3,53 @@ import {
   Eye,
   EyeOff,
   Film,
+  Gamepad2,
   Pause,
   Play,
+  RotateCcw,
   Save,
   Scissors,
+  Settings,
   Square,
+  Trash2,
   Upload,
   WandSparkles
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { CharacterDirection, SavedAnimationKeys } from "@ai-game-workbench/core";
+import type { SavedAnimationKeys } from "@ai-game-workbench/core";
 import {
-  ACTION_TEMPLATES,
-  CHARACTER_DIRECTION_LABELS,
-  CHARACTER_DIRECTIONS
-} from "@ai-game-workbench/core";
-import {
+  createOneClickCharacterJob,
+  createAdvancedActionMidframeGeneration,
+  createDirectionTemplateGeneration,
+  createCharacter,
+  deleteCharacter,
   createFirstFrameGeneration,
   createVideoGeneration,
+  getCharacterAssets,
+  getOneClickCharacterJob,
+  getModule01WorkflowConfig,
   getVideoGenerationStatus,
-  processVideoFrames,
+  listCharacters,
+  prepareAdvancedActionStartFrame,
+  processAdvancedActionVideo,
+  processFourDirectionVideo,
+  saveOpenRouterKey,
+  saveModule01WorkflowConfig,
   toAbsoluteApiUrl,
   uploadFrameVideoAsset,
-  uploadFirstFrameAsset
+  uploadFirstFrameAsset,
+  uploadModule01ReferenceImage
+} from "../api/client";
+import type {
+  CharacterFolder,
+  CharacterAssetFile,
+  AdvancedActionAssets,
+  AdvancedActionKind,
+  DirectionProcessingResult,
+  Module01ReferenceImageKind,
+  ProcessFourDirectionResult,
+  ProcessedFrame,
+  OneClickCharacterJob
 } from "../api/client";
 
 interface SpriteAnimatorProps {
@@ -45,128 +69,584 @@ interface FramePreview {
   hidden: boolean;
 }
 
+interface AdvancedActionState {
+  keyframePreview: MediaPreview | null;
+  inputPreview: MediaPreview | null;
+  outputPreview: MediaPreview | null;
+  middleFramePreview: MediaPreview | null;
+  jobId: string;
+  result: ProcessFourDirectionResult | null;
+  status: string;
+  statusDetails: string;
+  isGeneratingKeyframe: boolean;
+  isGeneratingMidframe: boolean;
+  isPreparingInput: boolean;
+  isSubmittingVideo: boolean;
+  isProcessing: boolean;
+}
+
+type Module01Page = "reference-settings" | "base-template" | "direction-templates" | "walk-videos" | "loop-export" | "advanced-run" | "advanced-attack-1" | "advanced-jump" | "one-click-character" | "character-preview";
+type PreviewDirection = DirectionProcessingResult["key"];
+type CharacterPreviewBackgroundMode = "map-1" | "map-2" | "grid";
+type AdvancedActionPage = "advanced-run" | "advanced-attack-1" | "advanced-jump";
+
+interface CharacterPreviewSettings {
+  idleFps: number;
+  walkFps: number;
+  runFps: number;
+  attackFps: number;
+  jumpFps: number;
+  previewSize: number;
+  moveSpeed: number;
+  backgroundMode: CharacterPreviewBackgroundMode;
+  showGuides: boolean;
+  showCellBounds: boolean;
+}
+
 interface SpriteAnimatorDraft {
   openRouterApiKey: string;
   imageModel: string;
   videoModel: string;
   keyColor: string;
-  direction: CharacterDirection;
-  videoDirection: CharacterDirection;
+  videoDurationSeconds: number;
+  videoResolution: string;
   imageGenerationSize: number;
-  imagePrompt: string;
-  imagePromptInstructions: string;
+  imageStyle: string;
+  imageSystemPrompt: string;
+  imageCustomPrompt: string;
   finalImagePrompt: string;
-  finalImagePromptTouched: boolean;
-  actionTemplate: keyof typeof ACTION_TEMPLATES;
-  actionPrompt: string;
+  directionImageModel: string;
+  directionImageGenerationSize: number;
+  directionIdleSystemPrompt: string;
+  directionIdleCustomPrompt: string;
+  finalDirectionIdlePrompt: string;
+  directionWalkSystemPrompt: string;
+  directionWalkCustomPrompt: string;
+  finalDirectionWalkPrompt: string;
+  videoSystemPrompt: string;
+  videoCustomPrompt: string;
   finalVideoPrompt: string;
-  finalVideoPromptTouched: boolean;
+  advancedRunSystemPrompt: string;
+  advancedRunCustomPrompt: string;
+  finalAdvancedRunPrompt: string;
+  advancedRunVideoSystemPrompt: string;
+  advancedRunVideoCustomPrompt: string;
+  finalAdvancedRunVideoPrompt: string;
+  advancedAttackSystemPrompt: string;
+  advancedAttackCustomPrompt: string;
+  finalAdvancedAttackPrompt: string;
+  advancedAttackMidframeCustomPrompt: string;
+  advancedAttackStartScale: number;
+  advancedJumpSystemPrompt: string;
+  advancedJumpCustomPrompt: string;
+  finalAdvancedJumpPrompt: string;
+  advancedJumpStartScale: number;
   frameCount: number;
   fps: number;
   tolerance: number;
+  minLoopFrames: number;
+  maxLoopFrames: number;
+  exportFrameSize: number;
+  exportFrameSizeDefaultVersion?: number;
+  directionPromptDefaultVersion?: number;
 }
 
-const DRAFT_STORAGE_KEY = "ai-game-workbench.sprite-animator.workflow.v3";
-const LEGACY_DRAFT_STORAGE_KEY = "ai-game-workbench.sprite-animator.workflow.v2";
+type BackendWorkflowDraft = Omit<SpriteAnimatorDraft, "openRouterApiKey"> & {
+  characterPreviewSettings?: CharacterPreviewSettings;
+};
+
+const DRAFT_STORAGE_KEY = "ai-game-workbench.sprite-animator.workflow.v5";
+const ACTIVE_CHARACTER_STORAGE_KEY = "ai-game-workbench.sprite-animator.active-character";
+const CHARACTER_PREVIEW_SETTINGS_STORAGE_KEY = "ai-game-workbench.sprite-animator.character-preview.v1";
+const LEGACY_DRAFT_STORAGE_KEYS = [
+  "ai-game-workbench.sprite-animator.workflow.v4",
+  "ai-game-workbench.sprite-animator.workflow.v3",
+  "ai-game-workbench.sprite-animator.workflow.v2"
+];
 const FIXED_PUBLIC_ASSET_BASE_URL = "https://darn-skittle-unwoven.ngrok-free.dev";
+const BUILT_IN_STYLE_REFERENCE_URL = "/style-references/cel-anime-south-facing.png";
+const BUILT_IN_WALK_REFERENCE_URL = "/direction-references/walk-4dir.png";
+const BUILT_IN_IDLE_REFERENCE_URL = "/direction-references/idle-4dir.png";
+const BUILT_IN_RUN_REFERENCE_URL = "/direction-references/run-4dir.png";
+const PREVIEW_GAME_MAP_1_URL = "/preview-maps/game-map-1.png";
+const PREVIEW_GAME_MAP_2_URL = "/preview-maps/game-map-2.png";
+const DEFAULT_EXPORT_FRAME_SIZE = 1024;
+const EXPORT_FRAME_SIZE_DEFAULT_VERSION = 2;
+const DIRECTION_PROMPT_DEFAULT_VERSION = 2;
+const DEFAULT_ATTACK_START_SCALE = 0.74;
+const DEFAULT_JUMP_START_SCALE = 0.78;
 const LEGACY_SEEDREAM_IMAGE_MODEL = "bytedance-seed/seedream-4.5";
+const LOCAL_CODEX_IMAGE_MODEL = "local/gpt-image-2";
+interface ImageGenerationSizeOption {
+  size: number;
+  label: string;
+}
+
 const IMAGE_MODELS = [
-  { id: "openai/gpt-5.4-image-2", label: "GPT Image 2 (openai/gpt-5.4-image-2)" },
-  { id: "google/gemini-3.1-flash-image-preview", label: "Nano Banana 2 (google/gemini-3.1-flash-image-preview)" },
-  { id: LEGACY_SEEDREAM_IMAGE_MODEL, label: "Seedream 4.5 (bytedance-seed/seedream-4.5)" }
+  {
+    id: "openai/gpt-5.4-image-2",
+    label: "GPT Image 2 (openai/gpt-5.4-image-2)",
+    sizeOptions: [
+      { size: 1024, label: "1024 x 1024 (1K)" },
+      { size: 2048, label: "2048 x 2048 (2K)" },
+      { size: 2880, label: "2880 x 2880 (最大正方形)" }
+    ]
+  },
+  {
+    id: LOCAL_CODEX_IMAGE_MODEL,
+    label: "local GPT image2",
+    sizeOptions: [
+      { size: 1024, label: "1024 x 1024" },
+      { size: 2048, label: "2048 x 2048" },
+      { size: 2880, label: "2880 x 2880" }
+    ]
+  },
+  {
+    id: "google/gemini-3.1-flash-image-preview",
+    label: "Nano Banana 2 (google/gemini-3.1-flash-image-preview)",
+    sizeOptions: [
+      { size: 512, label: "512 x 512 (0.5K)" },
+      { size: 1024, label: "1024 x 1024 (1K)" },
+      { size: 2048, label: "2048 x 2048 (2K)" },
+      { size: 4096, label: "4096 x 4096 (4K)" }
+    ]
+  },
+  {
+    id: LEGACY_SEEDREAM_IMAGE_MODEL,
+    label: "Seedream 4.5 (bytedance-seed/seedream-4.5)",
+    sizeOptions: [
+      { size: 1024, label: "1024 x 1024 (默认)" }
+    ]
+  }
 ] as const;
 const DEFAULT_IMAGE_MODEL = IMAGE_MODELS[0].id;
-const DEFAULT_IMAGE_PROMPT = "白色短发、粉色眼睛、黑色服装配白色袖子和花饰的成年二次元像素角色";
-const DEFAULT_IMAGE_PROMPT_INSTRUCTIONS =
-  "生成正方形像素风首帧，单个全身角色居中，轮廓干净，转换为像素风，使用纯色抠图背景，无阴影、无地面、无文字。";
+const IMAGE_STYLES = [
+  {
+    id: "cel-anime",
+    label: "赛璐璐风格"
+  }
+] as const;
+const DEFAULT_IMAGE_STYLE = IMAGE_STYLES[0].id;
+const DEFAULT_IMAGE_SYSTEM_PROMPT = [
+  "使用第一张图作为画风、镜头、角色比例、朝向和构图参考，不复制参考图A中的角色身份、服装和具体设计：高清2D游戏角色精灵，斜俯视3/4正交镜头，下方向 / south-facing，角色居中，全身，纯色抠图背景。",
+  "使用第二张图作为角色身份参考：保留角色的发型、长相、服装配色、主要装饰和整体辨识度，不保留原图姿势、镜头和构图。",
+  "重新绘制一张新的高清2D游戏角色首帧：下方向走路循环第一帧。纯色 #00ff00 背景，无地面、无阴影、无文字、无UI、无特效。"
+].join("\n\n");
+const DEFAULT_IMAGE_CUSTOM_PROMPT = "";
+const DEFAULT_DIRECTION_IDLE_SYSTEM_PROMPT = [
+  "使用第一张图作为角色四方向步行参考图。",
+  "严格保留第一张图中四个方向角色的身份、发型、长相、服装、配色、装饰、角色大小、镜头角度、站位、2x2 排布和整体辨识度。",
+  "参考第二张图的四方向待机格式。",
+  "第二张图只参考待机站立动作状态，不要复制第二张图里的角色身份、服装和具体设计。",
+  "将第一张图中的四个方向角色分别改绘为待机站立状态，生成一张高清 2D 游戏角色四方向待机精灵图，纯色 #00ff00 背景。",
+  "2x2 排布必须保持不变：\n左上：面朝下\n右上：面朝上\n左下：面朝左\n右下：面朝右",
+  "动作状态：待机站立。",
+  "四个方向角色大小一致，位置与第一张图对应方向对齐。",
+  "不要改变角色比例，不要改变服装细节，不要改变四宫格位置。",
+  "无地面、无阴影、无文字、无UI、无特效。"
+].join("\n\n");
+const DEFAULT_DIRECTION_WALK_SYSTEM_PROMPT = [
+  "使用第一张图中的角色作为角色参考，保留角色的发型、长相、服装、配色、装饰和整体辨识度。",
+  "参考第二张图的四方向游戏精灵格式，做四方向图。",
+  "第二张图只参考朝向、镜头角度、角色比例、角色大小、站位、2x2 排布和动作状态，不要复制第二张图里的角色身份和服装。",
+  "生成一张高清 2D 游戏角色四方向精灵图，纯色 #00ff00 背景。",
+  "2x2 排布：\n左上：面朝下\n右上：面朝上\n左下：面朝左\n右下：面朝右",
+  "动作状态：步行循环关键帧。\n四个方向角色大小一致，位置对齐，迈步幅度和动作节奏一致，适合后续生成四方向步行动画。"
+].join("\n\n");
+const DEFAULT_DIRECTION_CUSTOM_PROMPT = "";
+const DEFAULT_VIDEO_SYSTEM_PROMPT = [
+  "参考输入图像中的 2x2 四宫格角色，保持四宫格布局不变，每个格子里的角色都独立做原地走路循环动画。",
+  "左上角色保持朝正面方向行走，右上角色保持背面方向行走，左下角色保持朝左侧方向行走，右下角色保持右侧方向行走。",
+  "动画要求：2D 游戏精灵帧，角色全身可见，角色位置固定在各自格子中心，不要跨出格子，不要改变角色服装、发型、颜色、比例和轮廓。动作是自然的 walk cycle，双腿交替迈步，双手自然摆动，身体轻微上下起伏，适合拆成游戏精灵帧。",
+  "画面要求：固定镜头，正交视角，无镜头移动，无缩放，无旋转，无景深。保持纯绿色抠图背景，背景不要变化，不要阴影，不要地面，不要文字，不要特效。整体动作平滑、可循环、适合后续拆帧和抠图。"
+].join("\n\n");
+const DEFAULT_VIDEO_CUSTOM_PROMPT = "";
+const DEFAULT_ADVANCED_RUN_SYSTEM_PROMPT = [
+  "使用第一张图作为角色四方向步行基准图，保持角色身份、发型、服装、配色、装饰、角色比例、2x2 排布和四个方向位置。",
+  "参考第二张图的跑步四方向游戏精灵格式，只参考跑步动作状态、步幅节奏、镜头角度和角色大小，不复制第二张图里的角色身份和服装。",
+  "生成一张高清 2D 游戏角色四方向跑步首帧图，纯色 #00ff00 背景。",
+  "2x2 排布保持不变：左上面朝下，右上面朝上，左下面朝左，右下面朝右。四个方向角色大小一致，位置对齐。"
+].join("\n\n");
+const DEFAULT_ADVANCED_RUN_CUSTOM_PROMPT = "";
+const DEFAULT_ADVANCED_RUN_VIDEO_SYSTEM_PROMPT = [
+  "参考输入图像中的 2x2 四宫格跑步首帧，保持四宫格布局不变，每个格子里的角色都独立做原地跑步循环动画。",
+  "左上角色保持面朝下方向跑步，右上角色保持面朝上方向跑步，左下角色保持面朝左方向跑步，右下角色保持面朝右方向跑步。",
+  "动画要求：2D 游戏精灵帧，角色全身可见，角色位置固定在各自格子中心，不要跨出格子，不要改变角色服装、发型、颜色、比例和轮廓。动作是自然的 run cycle，双腿快速交替迈步，双臂自然摆动，身体轻微上下起伏，适合拆成游戏精灵帧。",
+  "画面要求：固定镜头，正交视角，无镜头移动，无缩放，无旋转，无景深。保持纯绿色抠图背景，背景不要变化，不要阴影，不要地面，不要文字，不要特效。整体动作平滑、可循环、适合后续拆帧和抠图。"
+].join("\n\n");
+const DEFAULT_ADVANCED_RUN_VIDEO_CUSTOM_PROMPT = "";
+const DEFAULT_ADVANCED_ATTACK_SYSTEM_PROMPT = [
+  "参考输入图像中的 2x2 四宫格角色，以四个方向的待机姿态作为攻击动作1起始帧。",
+  "每个格子里的角色都独立做原地攻击动作1，动作开始于待机，完成攻击后回到待机姿态，适合裁剪为一次性动作序列。",
+  "角色保持在各自格子中心，不跨出格子，不改变角色服装、发型、颜色、比例和轮廓。若有第三张参考图，只参考武器、攻击道具或攻击方式，不复制其角色身份。",
+  "固定镜头，正交视角，无镜头移动，无缩放，无旋转。保持纯绿色抠图背景，无地面、无阴影、无文字、无UI、无特效。"
+].join("\n\n");
+const DEFAULT_ADVANCED_ATTACK_CUSTOM_PROMPT = "";
+const DEFAULT_ADVANCED_ATTACK_MIDFRAME_CUSTOM_PROMPT = "";
+const DEFAULT_ADVANCED_JUMP_SYSTEM_PROMPT = [
+  "参考输入图像中的 2x2 四宫格角色，以四个方向的待机姿态作为原地跳跃起始帧。",
+  "每个格子里的角色都独立做原地跳跃动作，动作开始于待机，起跳、滞空、落地后回到待机姿态，适合裁剪为一次性动作序列。",
+  "角色保持在各自格子中心，不跨出格子，不改变角色服装、发型、颜色、比例和轮廓。",
+  "固定镜头，正交视角，无镜头移动，无缩放，无旋转。保持纯绿色抠图背景，无地面、无阴影、无文字、无UI、无特效。"
+].join("\n\n");
+const DEFAULT_ADVANCED_JUMP_CUSTOM_PROMPT = "";
+
+interface VideoModelOption {
+  id: string;
+  label: string;
+  durationOptions: readonly number[];
+  defaultDurationSeconds: number;
+  resolutionOptions: readonly string[];
+  defaultResolution: string;
+}
+
+function rangeInclusive(start: number, end: number): number[] {
+  return Array.from({ length: end - start + 1 }, (_, index) => start + index);
+}
 
 const VIDEO_MODELS = [
-  { id: "bytedance/seedance-2.0", label: "Seedance 2.0", minDuration: 4 },
-  { id: "bytedance/seedance-2.0-fast", label: "Seedance 2.0 Fast", minDuration: 4 },
-  { id: "kwaivgi/kling-v3.0-std", label: "Kling v3.0 标准", minDuration: 3 },
-  { id: "kwaivgi/kling-v3.0-pro", label: "Kling v3.0 Pro", minDuration: 3 }
-] as const;
+  {
+    id: "x-ai/grok-imagine-video",
+    label: "Grok Imagine Video",
+    durationOptions: rangeInclusive(1, 15),
+    defaultDurationSeconds: 1,
+    resolutionOptions: ["480p", "720p"],
+    defaultResolution: "480p"
+  },
+  {
+    id: "bytedance/seedance-2.0",
+    label: "Seedance 2.0",
+    durationOptions: rangeInclusive(4, 15),
+    defaultDurationSeconds: 4,
+    resolutionOptions: ["480p", "720p", "1080p"],
+    defaultResolution: "720p"
+  },
+  {
+    id: "bytedance/seedance-2.0-fast",
+    label: "Seedance 2.0 Fast",
+    durationOptions: rangeInclusive(4, 15),
+    defaultDurationSeconds: 4,
+    resolutionOptions: ["480p", "720p", "1080p"],
+    defaultResolution: "720p"
+  },
+  {
+    id: "kwaivgi/kling-v3.0-std",
+    label: "Kling v3.0 标准",
+    durationOptions: rangeInclusive(3, 15),
+    defaultDurationSeconds: 3,
+    resolutionOptions: ["720p"],
+    defaultResolution: "720p"
+  },
+  {
+    id: "kwaivgi/kling-v3.0-pro",
+    label: "Kling v3.0 Pro",
+    durationOptions: rangeInclusive(3, 15),
+    defaultDurationSeconds: 3,
+    resolutionOptions: ["720p"],
+    defaultResolution: "720p"
+  }
+] satisfies readonly VideoModelOption[];
+const DEFAULT_VIDEO_MODEL = "bytedance/seedance-2.0";
+const FPS_MAX = 300;
+
+const MODULE_PAGES: Record<Module01Page, string> = {
+  "reference-settings": "参考图设置",
+  "base-template": "角色基准模板生成",
+  "direction-templates": "四方向模板图生成",
+  "walk-videos": "四方向步行视频",
+  "loop-export": "智能循环与导出",
+  "advanced-run": "跑步四方向",
+  "advanced-attack-1": "攻击动作1",
+  "advanced-jump": "跳跃动作",
+  "one-click-character": "一键生成角色",
+  "character-preview": "角色预览"
+};
+
+const PREVIEW_DIRECTION_ORDER = ["down", "up", "left", "right"] as const satisfies readonly PreviewDirection[];
+const PREVIEW_DIRECTION_LABELS: Record<PreviewDirection, string> = {
+  down: "下",
+  up: "上",
+  left: "左",
+  right: "右"
+};
+const PREVIEW_KEY_TO_DIRECTION: Record<string, PreviewDirection> = {
+  s: "down",
+  w: "up",
+  a: "left",
+  d: "right"
+};
+const PREVIEW_DIRECTION_VECTORS: Record<PreviewDirection, { x: number; y: number }> = {
+  down: { x: 0, y: 1 },
+  up: { x: 0, y: -1 },
+  left: { x: -1, y: 0 },
+  right: { x: 1, y: 0 }
+};
+const DEFAULT_CHARACTER_PREVIEW_SETTINGS = {
+  idleFps: 12,
+  walkFps: 30,
+  runFps: 30,
+  attackFps: 30,
+  jumpFps: 30,
+  previewSize: 160,
+  moveSpeed: 120,
+  backgroundMode: "map-1" as CharacterPreviewBackgroundMode,
+  showGuides: true,
+  showCellBounds: false
+} satisfies CharacterPreviewSettings;
+
+const REFERENCE_IMAGE_LABELS: Record<Module01ReferenceImageKind, string> = {
+  style: "赛璐璐画风参考图",
+  walk: "四方向步行参考图",
+  idle: "四方向待机参考图",
+  run: "四方向跑步参考图"
+};
 
 export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
   const savedDraft = loadDraft(defaultKeys);
+  const [activePage, setActivePage] = useState<Module01Page>("base-template");
   const [openRouterApiKey, setOpenRouterApiKey] = useState(savedDraft.openRouterApiKey);
   const [imageModel, setImageModel] = useState(savedDraft.imageModel);
   const [videoModel, setVideoModel] = useState(savedDraft.videoModel);
   const [keyColor, setKeyColor] = useState(savedDraft.keyColor);
-  const [direction, setDirection] = useState<CharacterDirection>(savedDraft.direction);
-  const [videoDirection, setVideoDirection] = useState<CharacterDirection>(savedDraft.videoDirection);
+  const [videoDurationSeconds, setVideoDurationSeconds] = useState(savedDraft.videoDurationSeconds);
+  const [videoResolution, setVideoResolution] = useState(savedDraft.videoResolution);
   const [imageGenerationSize, setImageGenerationSize] = useState(savedDraft.imageGenerationSize);
-  const [imagePrompt, setImagePrompt] = useState(savedDraft.imagePrompt);
-  const [imagePromptInstructions, setImagePromptInstructions] = useState(savedDraft.imagePromptInstructions);
+  const [imageStyle, setImageStyle] = useState(savedDraft.imageStyle);
+  const [imageSystemPrompt, setImageSystemPrompt] = useState(savedDraft.imageSystemPrompt);
+  const [imageCustomPrompt, setImageCustomPrompt] = useState(savedDraft.imageCustomPrompt);
   const [finalImagePrompt, setFinalImagePrompt] = useState(savedDraft.finalImagePrompt);
-  const [finalImagePromptTouched, setFinalImagePromptTouched] = useState(savedDraft.finalImagePromptTouched);
-  const [actionTemplate, setActionTemplate] = useState<keyof typeof ACTION_TEMPLATES>(savedDraft.actionTemplate);
-  const [actionPrompt, setActionPrompt] = useState(savedDraft.actionPrompt);
+  const [directionImageModel, setDirectionImageModel] = useState(savedDraft.directionImageModel);
+  const [directionImageGenerationSize, setDirectionImageGenerationSize] = useState(savedDraft.directionImageGenerationSize);
+  const [directionIdleSystemPrompt, setDirectionIdleSystemPrompt] = useState(savedDraft.directionIdleSystemPrompt);
+  const [directionIdleCustomPrompt, setDirectionIdleCustomPrompt] = useState(savedDraft.directionIdleCustomPrompt);
+  const [finalDirectionIdlePrompt, setFinalDirectionIdlePrompt] = useState(savedDraft.finalDirectionIdlePrompt);
+  const [directionWalkSystemPrompt, setDirectionWalkSystemPrompt] = useState(savedDraft.directionWalkSystemPrompt);
+  const [directionWalkCustomPrompt, setDirectionWalkCustomPrompt] = useState(savedDraft.directionWalkCustomPrompt);
+  const [finalDirectionWalkPrompt, setFinalDirectionWalkPrompt] = useState(savedDraft.finalDirectionWalkPrompt);
+  const [videoSystemPrompt, setVideoSystemPrompt] = useState(savedDraft.videoSystemPrompt);
+  const [videoCustomPrompt, setVideoCustomPrompt] = useState(savedDraft.videoCustomPrompt);
   const [finalVideoPrompt, setFinalVideoPrompt] = useState(savedDraft.finalVideoPrompt);
-  const [finalVideoPromptTouched, setFinalVideoPromptTouched] = useState(savedDraft.finalVideoPromptTouched);
+  const [advancedRunSystemPrompt, setAdvancedRunSystemPrompt] = useState(savedDraft.advancedRunSystemPrompt);
+  const [advancedRunCustomPrompt, setAdvancedRunCustomPrompt] = useState(savedDraft.advancedRunCustomPrompt);
+  const [finalAdvancedRunPrompt, setFinalAdvancedRunPrompt] = useState(savedDraft.finalAdvancedRunPrompt);
+  const [advancedRunVideoSystemPrompt, setAdvancedRunVideoSystemPrompt] = useState(savedDraft.advancedRunVideoSystemPrompt);
+  const [advancedRunVideoCustomPrompt, setAdvancedRunVideoCustomPrompt] = useState(savedDraft.advancedRunVideoCustomPrompt);
+  const [finalAdvancedRunVideoPrompt, setFinalAdvancedRunVideoPrompt] = useState(savedDraft.finalAdvancedRunVideoPrompt);
+  const [advancedAttackSystemPrompt, setAdvancedAttackSystemPrompt] = useState(savedDraft.advancedAttackSystemPrompt);
+  const [advancedAttackCustomPrompt, setAdvancedAttackCustomPrompt] = useState(savedDraft.advancedAttackCustomPrompt);
+  const [finalAdvancedAttackPrompt, setFinalAdvancedAttackPrompt] = useState(savedDraft.finalAdvancedAttackPrompt);
+  const [advancedAttackMidframeCustomPrompt, setAdvancedAttackMidframeCustomPrompt] = useState(savedDraft.advancedAttackMidframeCustomPrompt);
+  const [advancedAttackStartScale, setAdvancedAttackStartScale] = useState(savedDraft.advancedAttackStartScale);
+  const [advancedJumpSystemPrompt, setAdvancedJumpSystemPrompt] = useState(savedDraft.advancedJumpSystemPrompt);
+  const [advancedJumpCustomPrompt, setAdvancedJumpCustomPrompt] = useState(savedDraft.advancedJumpCustomPrompt);
+  const [finalAdvancedJumpPrompt, setFinalAdvancedJumpPrompt] = useState(savedDraft.finalAdvancedJumpPrompt);
+  const [advancedJumpStartScale, setAdvancedJumpStartScale] = useState(savedDraft.advancedJumpStartScale);
   const [frameCount, setFrameCount] = useState(savedDraft.frameCount);
   const [fps, setFps] = useState(savedDraft.fps);
   const [tolerance, setTolerance] = useState(savedDraft.tolerance);
+  const [minLoopFrames, setMinLoopFrames] = useState(savedDraft.minLoopFrames);
+  const [maxLoopFrames, setMaxLoopFrames] = useState(savedDraft.maxLoopFrames);
+  const [exportFrameSize, setExportFrameSize] = useState(savedDraft.exportFrameSize);
 
-  const [firstFrameInputFile, setFirstFrameInputFile] = useState<File | null>(null);
-  const [firstFrameInputPreview, setFirstFrameInputPreview] = useState<MediaPreview | null>(null);
-  const [uploadedFirstFramePublicUrl, setUploadedFirstFramePublicUrl] = useState("");
+  const [characterReferenceFile, setCharacterReferenceFile] = useState<File | null>(null);
+  const [directionBaseTemplateFile, setDirectionBaseTemplateFile] = useState<File | null>(null);
+  const [characterReferencePreview, setCharacterReferencePreview] = useState<MediaPreview | null>(null);
+  const [oneClickCharacterName, setOneClickCharacterName] = useState("");
+  const [oneClickReferenceFile, setOneClickReferenceFile] = useState<File | null>(null);
+  const [oneClickReferencePreview, setOneClickReferencePreview] = useState<MediaPreview | null>(null);
+  const [oneClickIncludeRun, setOneClickIncludeRun] = useState(false);
+  const [oneClickIncludeAttack, setOneClickIncludeAttack] = useState(false);
+  const [oneClickIncludeJump, setOneClickIncludeJump] = useState(false);
+  const [oneClickJob, setOneClickJob] = useState<OneClickCharacterJob | null>(null);
+  const [oneClickStatus, setOneClickStatus] = useState("等待输入角色名和角色参考图。");
+  const [isStartingOneClick, setIsStartingOneClick] = useState(false);
+  const [uploadedCharacterReferencePublicUrl, setUploadedCharacterReferencePublicUrl] = useState("");
   const [firstFrameOutputPreview, setFirstFrameOutputPreview] = useState<MediaPreview | null>(null);
+  const [directionBaseTemplatePreview, setDirectionBaseTemplatePreview] = useState<MediaPreview | null>(null);
+  const [idleDirectionOutputPreview, setIdleDirectionOutputPreview] = useState<MediaPreview | null>(null);
+  const [walkDirectionOutputPreview, setWalkDirectionOutputPreview] = useState<MediaPreview | null>(null);
   const [videoInputPreview, setVideoInputPreview] = useState<MediaPreview | null>(null);
   const [videoOutputPreview, setVideoOutputPreview] = useState<MediaPreview | null>(null);
   const [frameVideoInputPreview, setFrameVideoInputPreview] = useState<MediaPreview | null>(null);
   const [videoJobId, setVideoJobId] = useState("");
   const [frames, setFrames] = useState<FramePreview[]>([]);
+  const [fourDirectionResult, setFourDirectionResult] = useState<ProcessFourDirectionResult | null>(null);
+  const [advancedActions, setAdvancedActions] = useState<Record<AdvancedActionKind, AdvancedActionState>>(() => ({
+    run: buildInitialAdvancedActionState("等待步行四方向图，可先生成跑步首帧。"),
+    "attack-1": buildInitialAdvancedActionState("等待待机四方向处理结果，可准备攻击起始帧。"),
+    jump: buildInitialAdvancedActionState("等待待机四方向处理结果，可准备跳跃起始帧。")
+  }));
   const [activeFrameIndex, setActiveFrameIndex] = useState(0);
+  const [characters, setCharacters] = useState<CharacterFolder[]>([]);
+  const [activeCharacterId, setActiveCharacterId] = useState(() => localStorage.getItem(ACTIVE_CHARACTER_STORAGE_KEY) ?? "");
+  const [newCharacterName, setNewCharacterName] = useState("");
+  const [characterStatus, setCharacterStatus] = useState(() => {
+    const stored = localStorage.getItem(ACTIVE_CHARACTER_STORAGE_KEY);
+    return stored ? `当前角色：${stored}` : "请先创建或选择角色文件夹。";
+  });
   const [isProcessingFirstFrame, setIsProcessingFirstFrame] = useState(false);
+  const [isCreatingCharacter, setIsCreatingCharacter] = useState(false);
+  const [deletingCharacterId, setDeletingCharacterId] = useState("");
+  const [processingDirectionTemplate, setProcessingDirectionTemplate] = useState<"idle" | "walk" | null>(null);
   const [isSubmittingVideo, setIsSubmittingVideo] = useState(false);
   const [isProcessingFrames, setIsProcessingFrames] = useState(false);
   const [isPlayingFrames, setIsPlayingFrames] = useState(false);
-  const [firstFrameStatus, setFirstFrameStatus] = useState("等待输入图片或直接生成首帧。");
-  const [videoStatus, setVideoStatus] = useState("等待首帧输出。");
+  const [firstFrameStatus, setFirstFrameStatus] = useState("等待角色参考图或直接生成基准模板。");
+  const [referenceSettingsStatus, setReferenceSettingsStatus] = useState("上传参考图后会全局覆盖，并影响所有角色后续生成。");
+  const [directionTemplateStatus, setDirectionTemplateStatus] = useState("等待角色基准模板。先生成步行 2x2，再基于步行图生成待机 2x2。");
+  const [videoStatus, setVideoStatus] = useState("等待四方向步行图，或直接上传 2x2 四方向步行图。");
+  const [videoStatusDetails, setVideoStatusDetails] = useState("");
   const [frameStatus, setFrameStatus] = useState("等待视频下载完成。");
   const pollTimeoutRef = useRef<number | undefined>(undefined);
+  const oneClickPollTimeoutRef = useRef<number | undefined>(undefined);
+  const assetHydrationVersionRef = useRef(0);
+  const [referenceImageVersion, setReferenceImageVersion] = useState("");
 
-  const selectedVideoModel = useMemo(
-    () => VIDEO_MODELS.find((model) => model.id === videoModel) ?? VIDEO_MODELS[0],
+  const videoDurationOptions = useMemo(
+    () => getVideoDurationOptions(videoModel),
     [videoModel]
   );
+  const videoResolutionOptions = useMemo(
+    () => getVideoResolutionOptions(videoModel),
+    [videoModel]
+  );
+  const imageGenerationSizeOptions = useMemo(
+    () => getImageGenerationSizeOptions(imageModel),
+    [imageModel]
+  );
+  const directionImageGenerationSizeOptions = useMemo(
+    () => getImageGenerationSizeOptions(directionImageModel),
+    [directionImageModel]
+  );
+  const builtInStyleReferencePreview = useMemo<MediaPreview>(() => ({
+    name: "cel-anime-south-facing.png",
+    url: buildReferenceImageUrl(BUILT_IN_STYLE_REFERENCE_URL, referenceImageVersion, "style")
+  }), [referenceImageVersion]);
+  const builtInWalkReferencePreview = useMemo<MediaPreview>(() => ({
+    name: "walk-4dir.png",
+    url: buildReferenceImageUrl(BUILT_IN_WALK_REFERENCE_URL, referenceImageVersion, "walk")
+  }), [referenceImageVersion]);
+  const builtInIdleReferencePreview = useMemo<MediaPreview>(() => ({
+    name: "idle-4dir.png",
+    url: buildReferenceImageUrl(BUILT_IN_IDLE_REFERENCE_URL, referenceImageVersion, "idle")
+  }), [referenceImageVersion]);
+  const builtInRunReferencePreview = useMemo<MediaPreview>(() => ({
+    name: "run-4dir.png",
+    url: buildReferenceImageUrl(BUILT_IN_RUN_REFERENCE_URL, referenceImageVersion, "run")
+  }), [referenceImageVersion]);
   const visibleFrames = frames.filter((frame) => !frame.hidden);
   const activeFrame = visibleFrames[activeFrameIndex % Math.max(visibleFrames.length, 1)];
+  const activePreviewFrameCount = getFinalLoopFrameCount(fourDirectionResult) || visibleFrames.length;
+  const effectiveDirectionBaseTemplatePreview = directionBaseTemplatePreview ?? firstFrameOutputPreview;
+  const currentFinalImagePrompt = buildFirstFramePrompt({
+    imageSystemPrompt,
+    imageCustomPrompt
+  });
+  const oneClickProgress = oneClickJob?.progressPercent ?? 0;
 
   useEffect(() => {
-    if (finalImagePromptTouched) {
-      return;
-    }
+    setImageGenerationSize((currentSize) => normalizeImageGenerationSize(imageModel, currentSize));
+  }, [imageModel]);
+
+  useEffect(() => {
+    setDirectionImageGenerationSize((currentSize) => normalizeImageGenerationSize(directionImageModel, currentSize));
+  }, [directionImageModel]);
+
+  useEffect(() => {
+    setVideoDurationSeconds((currentDuration) => normalizeVideoDuration(videoModel, currentDuration));
+    setVideoResolution((currentResolution) => normalizeVideoResolution(videoModel, currentResolution));
+  }, [videoModel]);
+
+  useEffect(() => {
     setFinalImagePrompt(buildFirstFramePrompt({
-      imagePrompt,
-      imagePromptInstructions,
-      imageGenerationSize,
-      direction,
-      keyColor
+      imageSystemPrompt,
+      imageCustomPrompt
     }));
-  }, [direction, finalImagePromptTouched, imageGenerationSize, imagePrompt, imagePromptInstructions, keyColor]);
+  }, [imageCustomPrompt, imageSystemPrompt]);
 
   useEffect(() => {
-    if (finalVideoPromptTouched) {
-      return;
-    }
+    setFinalDirectionIdlePrompt(buildFirstFramePrompt({
+      imageSystemPrompt: directionIdleSystemPrompt,
+      imageCustomPrompt: directionIdleCustomPrompt
+    }));
+  }, [directionIdleCustomPrompt, directionIdleSystemPrompt]);
+
+  useEffect(() => {
+    setFinalDirectionWalkPrompt(buildFirstFramePrompt({
+      imageSystemPrompt: directionWalkSystemPrompt,
+      imageCustomPrompt: directionWalkCustomPrompt
+    }));
+  }, [directionWalkCustomPrompt, directionWalkSystemPrompt]);
+
+  useEffect(() => {
     setFinalVideoPrompt(buildVideoPrompt({
-      direction: videoDirection,
-      actionPrompt,
-      keyColor
+      videoSystemPrompt,
+      videoCustomPrompt
     }));
-  }, [actionPrompt, finalVideoPromptTouched, keyColor, videoDirection]);
+  }, [videoCustomPrompt, videoSystemPrompt]);
 
   useEffect(() => {
-    if (!isPlayingFrames || visibleFrames.length === 0) {
+    setFinalAdvancedRunPrompt(buildFirstFramePrompt({
+      imageSystemPrompt: advancedRunSystemPrompt,
+      imageCustomPrompt: advancedRunCustomPrompt
+    }));
+  }, [advancedRunCustomPrompt, advancedRunSystemPrompt]);
+
+  useEffect(() => {
+    setFinalAdvancedRunVideoPrompt(buildVideoPrompt({
+      videoSystemPrompt: advancedRunVideoSystemPrompt,
+      videoCustomPrompt: advancedRunVideoCustomPrompt
+    }));
+  }, [advancedRunVideoCustomPrompt, advancedRunVideoSystemPrompt]);
+
+  useEffect(() => {
+    setFinalAdvancedAttackPrompt(buildVideoPrompt({
+      videoSystemPrompt: advancedAttackSystemPrompt,
+      videoCustomPrompt: advancedAttackCustomPrompt
+    }));
+  }, [advancedAttackCustomPrompt, advancedAttackSystemPrompt]);
+
+  useEffect(() => {
+    setFinalAdvancedJumpPrompt(buildVideoPrompt({
+      videoSystemPrompt: advancedJumpSystemPrompt,
+      videoCustomPrompt: advancedJumpCustomPrompt
+    }));
+  }, [advancedJumpCustomPrompt, advancedJumpSystemPrompt]);
+
+  useEffect(() => {
+    let isCancelled = false;
+    void getModule01WorkflowConfig()
+      .then((config) => {
+        if (isCancelled || !config) {
+          return;
+        }
+        if (config.characterPreviewSettings) {
+          saveCharacterPreviewSettings(normalizeCharacterPreviewSettings(
+            config.characterPreviewSettings,
+            loadCharacterPreviewSettings()
+          ));
+        }
+        applyWorkflowDraft(normalizeBackendWorkflowConfig(config, defaultKeys, openRouterApiKey));
+      })
+      .catch((error: unknown) => {
+        if (!isCancelled) {
+          setFirstFrameStatus(`后端提示词配置加载失败：${getErrorMessage(error)}`);
+        }
+      });
+    return () => {
+      isCancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isPlayingFrames || activePreviewFrameCount === 0) {
       return undefined;
     }
     const interval = window.setInterval(() => {
-      setActiveFrameIndex((current) => (current + 1) % visibleFrames.length);
-    }, Math.max(40, Math.round(1000 / Math.max(1, fps))));
+      setActiveFrameIndex((current) => (current + 1) % activePreviewFrameCount);
+    }, getPlaybackIntervalMs(fps));
     return () => window.clearInterval(interval);
-  }, [fps, isPlayingFrames, visibleFrames.length]);
+  }, [activePreviewFrameCount, fps, isPlayingFrames]);
 
   useEffect(() => {
     if (visibleFrames.length === 0) {
@@ -178,15 +658,57 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
   }, [visibleFrames.length]);
 
   useEffect(() => {
+    setActiveFrameIndex((current) => Math.min(current, Math.max(0, activePreviewFrameCount - 1)));
+  }, [activePreviewFrameCount]);
+
+  useEffect(() => {
+    void listCharacters()
+      .then((items) => {
+        setCharacters(items);
+        const stored = localStorage.getItem(ACTIVE_CHARACTER_STORAGE_KEY) ?? "";
+        const selected = items.find((item) => item.id === stored)?.id ?? items[0]?.id ?? "";
+        setActiveCharacterId(selected);
+        setCharacterStatus(selected ? `当前角色：${selected}` : "请先创建或选择角色文件夹。");
+      })
+      .catch((error: unknown) => {
+        setCharacterStatus(`角色列表加载失败：${getErrorMessage(error)}`);
+      });
+  }, []);
+
+  useEffect(() => {
+    if (activeCharacterId) {
+      localStorage.setItem(ACTIVE_CHARACTER_STORAGE_KEY, activeCharacterId);
+    } else {
+      localStorage.removeItem(ACTIVE_CHARACTER_STORAGE_KEY);
+    }
+  }, [activeCharacterId]);
+
+  useEffect(() => {
     return () => {
       if (pollTimeoutRef.current) {
         window.clearTimeout(pollTimeoutRef.current);
       }
-      if (firstFrameInputPreview?.url.startsWith("blob:")) {
-        URL.revokeObjectURL(firstFrameInputPreview.url);
+      if (oneClickPollTimeoutRef.current) {
+        window.clearTimeout(oneClickPollTimeoutRef.current);
       }
     };
-  }, [firstFrameInputPreview]);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (characterReferencePreview?.url.startsWith("blob:")) {
+        URL.revokeObjectURL(characterReferencePreview.url);
+      }
+    };
+  }, [characterReferencePreview]);
+
+  useEffect(() => {
+    return () => {
+      if (oneClickReferencePreview?.url.startsWith("blob:")) {
+        URL.revokeObjectURL(oneClickReferencePreview.url);
+      }
+    };
+  }, [oneClickReferencePreview]);
 
   useEffect(() => {
     return () => {
@@ -196,15 +718,195 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
     };
   }, [videoInputPreview]);
 
-  const handleFirstFrameUpload = (file: File) => {
+  useEffect(() => {
+    return () => {
+      if (directionBaseTemplatePreview?.url.startsWith("blob:")) {
+        URL.revokeObjectURL(directionBaseTemplatePreview.url);
+      }
+    };
+  }, [directionBaseTemplatePreview]);
+
+  useEffect(() => {
+    if (!activeCharacterId) {
+      clearLoadedCharacterAssets();
+      return;
+    }
+    void hydrateCharacterAssets(activeCharacterId);
+  }, [activeCharacterId]);
+
+  const requireCharacter = (setStatus: (message: string) => void): string | undefined => {
+    if (activeCharacterId) {
+      return activeCharacterId;
+    }
+    const message = "请先创建或选择角色文件夹。";
+    setCharacterStatus(message);
+    setStatus(message);
+    return undefined;
+  };
+
+  const clearLoadedCharacterAssets = () => {
+    assetHydrationVersionRef.current += 1;
+    setCharacterReferenceFile(null);
+    setDirectionBaseTemplateFile(null);
+    setCharacterReferencePreview(null);
+    setUploadedCharacterReferencePublicUrl("");
+    setFirstFrameOutputPreview(null);
+    setDirectionBaseTemplatePreview(null);
+    setIdleDirectionOutputPreview(null);
+    setWalkDirectionOutputPreview(null);
+    setVideoInputPreview(null);
+    setVideoOutputPreview(null);
+    setFrameVideoInputPreview(null);
+    setVideoJobId("");
+    setVideoStatusDetails("");
+    setFrames([]);
+    setFourDirectionResult(null);
+    setAdvancedActions({
+      run: buildInitialAdvancedActionState("等待步行四方向图，可先生成跑步首帧。"),
+      "attack-1": buildInitialAdvancedActionState("等待待机四方向处理结果，可准备攻击起始帧。"),
+      jump: buildInitialAdvancedActionState("等待待机四方向处理结果，可准备跳跃起始帧。")
+    });
+    setActiveFrameIndex(0);
+    setIsPlayingFrames(false);
+  };
+
+  const hydrateCharacterAssets = async (characterId: string) => {
+    const hydrationVersion = assetHydrationVersionRef.current + 1;
+    assetHydrationVersionRef.current = hydrationVersion;
+    try {
+      const assets = await getCharacterAssets(characterId);
+      if (assetHydrationVersionRef.current !== hydrationVersion) {
+        return;
+      }
+      const version = Date.now().toString(36);
+      const characterReference = toMediaPreview(assets.baseTemplate.characterReference, version);
+      const baseTemplateOutput = toMediaPreview(assets.baseTemplate.output, version);
+      const directionBaseTemplate = toMediaPreview(assets.baseCharacter.directionBaseTemplate, version);
+      const idleDirection = toMediaPreview(assets.baseCharacter.idleDirectionTemplate, version);
+      const walkDirection = toMediaPreview(assets.baseCharacter.walkDirectionTemplate, version);
+      const walkVideoInput = toMediaPreview(assets.baseCharacter.walkVideoInput, version);
+      const walkVideoSource = toMediaPreview(assets.baseCharacter.walkVideoSource, version);
+      setCharacterReferenceFile(null);
+      setDirectionBaseTemplateFile(null);
+      setCharacterReferencePreview(characterReference);
+      setUploadedCharacterReferencePublicUrl(assets.baseTemplate.characterReference ? toPublicAssetUrl(assets.baseTemplate.characterReference.url) : "");
+      setFirstFrameOutputPreview(baseTemplateOutput);
+      setDirectionBaseTemplatePreview(directionBaseTemplate);
+      setIdleDirectionOutputPreview(idleDirection);
+      setWalkDirectionOutputPreview(walkDirection);
+      setVideoInputPreview(walkVideoInput ?? walkDirection);
+      setVideoOutputPreview(walkVideoSource);
+      setFrameVideoInputPreview(walkVideoSource);
+      setVideoJobId(walkVideoSource ? (assets.baseCharacter.loopExport?.jobId ?? "existing-video") : "");
+      setFrames([]);
+      setFourDirectionResult(assets.baseCharacter.loopExport ? normalizeFourDirectionResult(assets.baseCharacter.loopExport) : null);
+      setAdvancedActions({
+        run: advancedAssetToState(assets.advancedCharacter?.run, "等待步行四方向图，可先生成跑步首帧。"),
+        "attack-1": advancedAssetToState(assets.advancedCharacter?.attack1, "等待待机四方向处理结果，可准备攻击起始帧。"),
+        jump: advancedAssetToState(assets.advancedCharacter?.jump, "等待待机四方向处理结果，可准备跳跃起始帧。")
+      });
+      setActiveFrameIndex(0);
+      setIsPlayingFrames(false);
+      setFirstFrameStatus(baseTemplateOutput || characterReference ? "已自动载入该角色已有参考图和基准模板。" : "等待角色参考图或直接生成基准模板。");
+      setDirectionTemplateStatus(directionBaseTemplate || idleDirection || walkDirection ? "已自动载入该角色已有四方向模板文件。" : "等待角色基准模板。先生成步行 2x2，再基于步行图生成待机 2x2。");
+      setVideoStatus(walkVideoSource ? "已自动载入该角色已有步行视频。" : walkVideoInput || walkDirection ? "已自动载入该角色已有四方向步行图，可以提交视频任务。" : "等待四方向步行图，或直接上传 2x2 四方向步行图。");
+      setFrameStatus(assets.baseCharacter.loopExport ? "已自动载入该角色已有循环导出结果。" : walkVideoSource ? "已自动载入该角色已有视频，可以处理帧。" : "等待视频下载完成。");
+    } catch (error: unknown) {
+      clearLoadedCharacterAssets();
+      setCharacterStatus(`角色文件加载失败：${getErrorMessage(error)}`);
+    }
+  };
+
+  const handleCreateCharacter = async () => {
+    const name = newCharacterName.trim();
+    if (!name) {
+      setCharacterStatus("请输入角色文件夹名称。");
+      return;
+    }
+    setIsCreatingCharacter(true);
+    setCharacterStatus("正在创建角色文件夹...");
+    try {
+      const character = await createCharacter(name);
+      setCharacters((current) => [...current.filter((item) => item.id !== character.id), character]
+        .sort((first, second) => first.name.localeCompare(second.name, "zh-Hans-CN")));
+      setActiveCharacterId(character.id);
+      setNewCharacterName("");
+      setCharacterStatus(`当前角色：${character.name}`);
+    } catch (error: unknown) {
+      setCharacterStatus(`角色创建失败：${getErrorMessage(error)}`);
+    } finally {
+      setIsCreatingCharacter(false);
+    }
+  };
+
+  const handleSelectCharacter = (characterId: string) => {
+    setActiveCharacterId(characterId);
+    setCharacterStatus(characterId ? `当前角色：${characterId}` : "请先创建或选择角色文件夹。");
+    setCharacterReferenceFile(null);
+    setDirectionBaseTemplateFile(null);
+    setCharacterReferencePreview(null);
+    setUploadedCharacterReferencePublicUrl("");
+    setFirstFrameOutputPreview(null);
+    setDirectionBaseTemplatePreview(null);
+    setIdleDirectionOutputPreview(null);
+    setWalkDirectionOutputPreview(null);
+    setVideoInputPreview(null);
+    setVideoOutputPreview(null);
+    setFrameVideoInputPreview(null);
+    setVideoJobId("");
+    setVideoStatusDetails("");
+    setFrames([]);
+    setFourDirectionResult(null);
+    setAdvancedActions({
+      run: buildInitialAdvancedActionState("等待步行四方向图，可先生成跑步首帧。"),
+      "attack-1": buildInitialAdvancedActionState("等待待机四方向处理结果，可准备攻击起始帧。"),
+      jump: buildInitialAdvancedActionState("等待待机四方向处理结果，可准备跳跃起始帧。")
+    });
+    setActiveFrameIndex(0);
+    setIsPlayingFrames(false);
+    setFirstFrameStatus(characterId ? "等待角色参考图或直接生成基准模板。" : "请先创建或选择角色文件夹。");
+    setDirectionTemplateStatus(characterId ? "等待角色基准模板。先生成步行 2x2，再基于步行图生成待机 2x2。" : "请先创建或选择角色文件夹。");
+    setVideoStatus(characterId ? "等待四方向步行图，或直接上传 2x2 四方向步行图。" : "请先创建或选择角色文件夹。");
+    setFrameStatus(characterId ? "等待视频下载完成。" : "请先创建或选择角色文件夹。");
+  };
+
+  const handleDeleteCharacter = async (character: CharacterFolder) => {
+    const confirmed = window.confirm(`确认删除角色「${character.name}」？此操作会删除整个角色文件夹，不能撤销。`);
+    if (!confirmed) {
+      return;
+    }
+
+    setDeletingCharacterId(character.id);
+    setCharacterStatus(`正在删除角色：${character.name}...`);
+    try {
+      const deleted = await deleteCharacter(character.id);
+      setCharacters((current) => current.filter((item) => item.id !== deleted.id));
+      if (activeCharacterId === deleted.id) {
+        handleSelectCharacter("");
+      } else {
+        setCharacterStatus(`已删除角色：${deleted.name}`);
+      }
+    } catch (error: unknown) {
+      setCharacterStatus(`角色删除失败：${getErrorMessage(error)}`);
+    } finally {
+      setDeletingCharacterId("");
+    }
+  };
+
+  const handleCharacterReferenceUpload = (file: File) => {
+    const characterId = requireCharacter(setFirstFrameStatus);
+    if (!characterId) {
+      return;
+    }
     if (!file.type.startsWith("image/")) {
       setFirstFrameStatus("上传失败：请选择图片文件。");
       return;
     }
+    assetHydrationVersionRef.current += 1;
     const previewUrl = URL.createObjectURL(file);
-    setFirstFrameInputFile(file);
-    setUploadedFirstFramePublicUrl("");
-    setFirstFrameInputPreview((current) => {
+    setCharacterReferenceFile(file);
+    setUploadedCharacterReferencePublicUrl("");
+    setCharacterReferencePreview((current) => {
       if (current?.url.startsWith("blob:")) {
         URL.revokeObjectURL(current.url);
       }
@@ -213,22 +915,171 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
         url: previewUrl
       };
     });
-    setFirstFrameStatus(`已载入输入图：${file.name}，正在保存资源。`);
-    void uploadFirstFrameAsset(file, { publicAssetBaseUrl: FIXED_PUBLIC_ASSET_BASE_URL })
+    setFirstFrameStatus(`已载入角色参考图：${file.name}，正在保存资源。`);
+    void uploadFirstFrameAsset(file, {
+      publicAssetBaseUrl: FIXED_PUBLIC_ASSET_BASE_URL,
+      characterId,
+      characterAssetKind: "base-template-reference"
+    })
       .then((asset) => {
-        setUploadedFirstFramePublicUrl(asset.publicUrl);
-        setFirstFrameStatus(`输入图已保存：${asset.fileName}`);
+        setUploadedCharacterReferencePublicUrl(asset.publicUrl);
+        setFirstFrameStatus(`角色参考图已保存：${asset.fileName}`);
       })
       .catch((error: unknown) => {
-        setFirstFrameStatus(`输入图保存失败：${getErrorMessage(error)}`);
+        setFirstFrameStatus(`角色参考图保存失败：${getErrorMessage(error)}`);
+      });
+  };
+
+  const handleOneClickReferenceUpload = (file: File) => {
+    if (!file.type.startsWith("image/")) {
+      setOneClickStatus("上传失败：请选择图片文件。");
+      return;
+    }
+    const previewUrl = URL.createObjectURL(file);
+    setOneClickReferenceFile(file);
+    setOneClickReferencePreview((current) => {
+      if (current?.url.startsWith("blob:")) {
+        URL.revokeObjectURL(current.url);
+      }
+      return {
+        name: file.name,
+        url: previewUrl
+      };
+    });
+    setOneClickStatus(`已载入角色参考图：${file.name}`);
+  };
+
+  const handleStartOneClickCharacterJob = async () => {
+    const characterName = oneClickCharacterName.trim();
+    if (!characterName) {
+      setOneClickStatus("请先输入角色名。");
+      return;
+    }
+    if (!oneClickReferenceFile) {
+      setOneClickStatus("请先上传角色参考图。");
+      return;
+    }
+    const existing = characters.some((character) => character.id === characterName || character.name === characterName);
+    const overwrite = existing
+      ? window.confirm(`角色「${characterName}」已存在。确认覆盖并重新生成整个角色文件夹吗？`)
+      : false;
+    if (existing && !overwrite) {
+      setOneClickStatus("已取消覆盖，未启动一键生成。");
+      return;
+    }
+    setIsStartingOneClick(true);
+    setOneClickStatus("正在启动一键生成角色任务...");
+    try {
+      if (openRouterApiKey.trim()) {
+        await saveOpenRouterKey(openRouterApiKey);
+      }
+      await saveDraft();
+      const referenceImageDataUrl = await readFileAsDataUrl(oneClickReferenceFile);
+      const job = await createOneClickCharacterJob({
+        characterName,
+        overwrite,
+        publicAssetBaseUrl: FIXED_PUBLIC_ASSET_BASE_URL,
+        referenceImageDataUrl,
+        firstFrame: {
+          model: imageModel,
+          prompt: currentFinalImagePrompt,
+          targetSize: imageGenerationSize,
+          keyColor,
+          style: imageStyle
+        },
+        actions: {
+          run: oneClickIncludeRun,
+          attack1: oneClickIncludeAttack,
+          jump: oneClickIncludeJump
+        }
+      }, {
+        openRouterApiKey,
+        publicAssetBaseUrl: FIXED_PUBLIC_ASSET_BASE_URL
+      });
+      setOneClickJob(job);
+      setActiveCharacterId(job.characterId);
+      setOneClickStatus(`一键生成任务已启动：${job.jobId}`);
+      void pollOneClickCharacterJob(job.jobId);
+    } catch (error: unknown) {
+      setOneClickStatus(`一键生成角色启动失败：${getErrorMessage(error)}`);
+    } finally {
+      setIsStartingOneClick(false);
+    }
+  };
+
+  const pollOneClickCharacterJob = async (jobId: string) => {
+    try {
+      const job = await getOneClickCharacterJob(jobId);
+      setOneClickJob(job);
+      setOneClickStatus(formatOneClickJobStatus(job));
+      if (job.status === "completed") {
+        const items = await listCharacters();
+        setCharacters(items);
+        setActiveCharacterId(job.characterId);
+        await hydrateCharacterAssets(job.characterId);
+        return;
+      }
+      if (job.status === "failed") {
+        return;
+      }
+      oneClickPollTimeoutRef.current = window.setTimeout(() => {
+        void pollOneClickCharacterJob(jobId);
+      }, 3000);
+    } catch (error: unknown) {
+      setOneClickStatus(`一键生成角色状态查询失败：${getErrorMessage(error)}`);
+    }
+  };
+
+  const handleDirectionBaseTemplateUpload = (file: File) => {
+    const characterId = requireCharacter(setDirectionTemplateStatus);
+    if (!characterId) {
+      return;
+    }
+    if (!file.type.startsWith("image/")) {
+      setDirectionTemplateStatus("上传失败：请选择图片文件。");
+      return;
+    }
+    assetHydrationVersionRef.current += 1;
+    const previewUrl = URL.createObjectURL(file);
+    setDirectionBaseTemplateFile(file);
+    setDirectionBaseTemplatePreview((current) => {
+      if (current?.url.startsWith("blob:")) {
+        URL.revokeObjectURL(current.url);
+      }
+      return {
+        name: file.name,
+        url: previewUrl
+      };
+    });
+    setDirectionTemplateStatus(`角色基准模板已载入：${file.name}，正在保存资源。`);
+    void uploadFirstFrameAsset(file, {
+      publicAssetBaseUrl: FIXED_PUBLIC_ASSET_BASE_URL,
+      characterId,
+      characterAssetKind: "direction-base-template"
+    })
+      .then((asset) => {
+        setDirectionBaseTemplatePreview((current) => current ? {
+          ...current,
+          name: asset.fileName,
+          publicUrl: asset.publicUrl
+        } : current);
+        setDirectionTemplateStatus(`角色基准模板已保存：${asset.fileName}`);
+      })
+      .catch((error: unknown) => {
+        setDirectionTemplateStatus(`角色基准模板保存失败：${getErrorMessage(error)}`);
       });
   };
 
   const handleVideoFirstFrameUpload = (file: File) => {
+    const characterId = requireCharacter(setVideoStatus);
+    if (!characterId) {
+      return;
+    }
     if (!file.type.startsWith("image/")) {
       setVideoStatus("上传失败：请选择图片文件。");
       return;
     }
+    assetHydrationVersionRef.current += 1;
     const previewUrl = URL.createObjectURL(file);
     setVideoInputPreview((current) => {
       if (current?.url.startsWith("blob:")) {
@@ -239,8 +1090,12 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
         url: previewUrl
       };
     });
-    setVideoStatus(`已载入视频首帧：${file.name}，正在保存资源。`);
-    void uploadFirstFrameAsset(file, { publicAssetBaseUrl: FIXED_PUBLIC_ASSET_BASE_URL })
+    setVideoStatus(`已载入四方向步行图：${file.name}，正在保存资源。`);
+    void uploadFirstFrameAsset(file, {
+      publicAssetBaseUrl: FIXED_PUBLIC_ASSET_BASE_URL,
+      characterId,
+      characterAssetKind: "walk-video-input"
+    })
       .then((asset) => {
         setVideoInputPreview((current) => {
           if (!current || current.url !== previewUrl) {
@@ -252,68 +1107,156 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
             publicUrl: asset.publicUrl
           };
         });
-        setVideoStatus(`视频首帧已保存：${asset.fileName}，可以提交视频任务。`);
+        setVideoStatus(`四方向步行图已保存：${asset.fileName}，可以提交视频任务。`);
       })
       .catch((error: unknown) => {
-        setVideoStatus(`视频首帧保存失败：${getErrorMessage(error)}`);
+        setVideoStatus(`四方向步行图保存失败：${getErrorMessage(error)}`);
       });
   };
 
   const handleProcessFirstFrame = async () => {
+    const characterId = requireCharacter(setFirstFrameStatus);
+    if (!characterId) {
+      return;
+    }
+    assetHydrationVersionRef.current += 1;
     setIsProcessingFirstFrame(true);
-    setFirstFrameStatus("正在处理首帧...");
+    setFirstFrameStatus("正在生成角色基准模板...");
     try {
-      const referenceImageDataUrl = firstFrameInputFile ? await readFileAsDataUrl(firstFrameInputFile) : undefined;
+      const referenceImageDataUrl = await readOptionalPreviewImageAsDataUrl(characterReferenceFile, characterReferencePreview);
+      const prompt = buildFirstFramePrompt({
+        imageSystemPrompt,
+        imageCustomPrompt
+      });
+      setFinalImagePrompt(prompt);
       const response = await createFirstFrameGeneration({
         model: imageModel,
-        prompt: finalImagePrompt,
+        prompt,
         targetSize: imageGenerationSize,
         keyColor,
-        direction,
         referenceImageDataUrl
       }, {
         openRouterApiKey,
-        publicAssetBaseUrl: FIXED_PUBLIC_ASSET_BASE_URL
+        publicAssetBaseUrl: FIXED_PUBLIC_ASSET_BASE_URL,
+        characterId
       });
       const imageUrl = extractImageUrl(response);
       const publicUrl = extractPublicUrl(response) ?? imageUrl;
       if (!imageUrl) {
-        throw new Error("首帧处理没有返回图片。");
+        throw new Error("角色基准模板生成没有返回图片。");
       }
       const preview = {
-        name: extractFileName(response) ?? "processed-first-frame.png",
-        url: toAbsoluteApiUrl(imageUrl),
+        name: extractFileName(response) ?? "base-character-template.png",
+        url: appendCacheBust(toAbsoluteApiUrl(imageUrl), Date.now().toString(36)),
         publicUrl
       };
       setFirstFrameOutputPreview(preview);
-      setVideoInputPreview(preview);
-      setFirstFrameStatus("首帧处理完成，已自动导入第二段。");
-      setVideoStatus("首帧已就绪，可以提交视频任务。");
+      setFirstFrameStatus("角色基准模板生成完成，已进入基础角色生成数据流。");
+      setDirectionBaseTemplateFile(null);
+      setDirectionBaseTemplatePreview(null);
+      setDirectionTemplateStatus("角色基准模板已就绪，请先生成步行四方向图，再基于步行图生成待机四方向图。");
+      setVideoStatus("角色基准模板已就绪，请先生成步行四方向图，或在视频页直接上传 2x2 四方向步行图。");
     } catch (error: unknown) {
-      setFirstFrameStatus(`首帧处理失败：${getErrorMessage(error)}`);
+      setFirstFrameStatus(`基准模板生成失败：${getErrorMessage(error)}`);
     } finally {
       setIsProcessingFirstFrame(false);
     }
   };
 
+  const handleGenerateDirectionTemplate = async (templateKind: "idle" | "walk") => {
+    const characterId = requireCharacter(setDirectionTemplateStatus);
+    if (!characterId) {
+      return;
+    }
+    const finalPrompt = templateKind === "idle" ? finalDirectionIdlePrompt : finalDirectionWalkPrompt;
+    const outputLabel = templateKind === "idle" ? "待机" : "步行";
+    assetHydrationVersionRef.current += 1;
+    setProcessingDirectionTemplate(templateKind);
+    setDirectionTemplateStatus(`正在生成${outputLabel}四方向图...`);
+    try {
+      const characterTemplateImageDataUrl = await resolveDirectionTemplateSourceDataUrl(templateKind);
+      const response = await createDirectionTemplateGeneration({
+        templateKind,
+        model: directionImageModel,
+        prompt: finalPrompt,
+        targetSize: directionImageGenerationSize,
+        keyColor,
+        characterTemplateImageDataUrl
+      }, {
+        openRouterApiKey,
+        publicAssetBaseUrl: FIXED_PUBLIC_ASSET_BASE_URL,
+        characterId
+      });
+      const imageUrl = extractImageUrl(response);
+      const publicUrl = extractPublicUrl(response) ?? imageUrl;
+      if (!imageUrl) {
+        throw new Error(`${outputLabel}四方向图生成没有返回图片。`);
+      }
+      const preview = {
+        name: extractFileName(response) ?? `${templateKind}-4dir.png`,
+        url: appendCacheBust(toAbsoluteApiUrl(imageUrl), Date.now().toString(36)),
+        publicUrl
+      };
+      if (templateKind === "idle") {
+        setIdleDirectionOutputPreview(preview);
+      } else {
+        setWalkDirectionOutputPreview(preview);
+        setIdleDirectionOutputPreview(null);
+        setVideoInputPreview(preview);
+        setVideoStatus("步行四方向图已就绪，可以提交步行视频任务。");
+      }
+      setDirectionTemplateStatus(`${outputLabel}四方向图生成完成。`);
+    } catch (error: unknown) {
+      setDirectionTemplateStatus(`${outputLabel}四方向图生成失败：${getErrorMessage(error)}`);
+    } finally {
+      setProcessingDirectionTemplate(null);
+    }
+  };
+
+  const resolveDirectionBaseTemplateDataUrl = async () => {
+    if (directionBaseTemplateFile) {
+      return readFileAsDataUrl(directionBaseTemplateFile);
+    }
+    if (!effectiveDirectionBaseTemplatePreview) {
+      throw new Error("请先生成或上传角色基准模板。");
+    }
+    return readImageUrlAsDataUrl(effectiveDirectionBaseTemplatePreview.url);
+  };
+
+  const resolveDirectionTemplateSourceDataUrl = async (templateKind: "idle" | "walk") => {
+    if (templateKind === "walk") {
+      return resolveDirectionBaseTemplateDataUrl();
+    }
+    if (!walkDirectionOutputPreview) {
+      throw new Error("请先生成步行四方向图，再基于步行图生成待机四方向图。");
+    }
+    return readImageUrlAsDataUrl(walkDirectionOutputPreview.url);
+  };
+
   const handleSubmitVideo = async () => {
-    const firstFrameUrl = videoInputPreview?.publicUrl ?? videoInputPreview?.url ?? firstFrameOutputPreview?.publicUrl ?? "";
+    const characterId = requireCharacter(setVideoStatus);
+    if (!characterId) {
+      return;
+    }
+    const firstFrameUrl = videoInputPreview?.publicUrl ?? videoInputPreview?.url ?? "";
     if (!firstFrameUrl) {
-      setVideoStatus("请先完成第一段首帧处理。");
+      setVideoStatus("请先生成步行四方向图，或直接上传 2x2 四方向步行图。");
       return;
     }
     if (!isPublicHttpsUrl(firstFrameUrl)) {
-      setVideoStatus("视频模型需要公网 HTTPS 首帧 URL。请设置公网资源地址后重新处理首帧。");
+      setVideoStatus("视频模型需要公网 HTTPS 四方向步行图 URL。请重新生成步行四方向图或重新上传。");
       return;
     }
     setIsSubmittingVideo(true);
     setVideoStatus("正在提交视频任务...");
+    setVideoStatusDetails("");
     try {
       const response = await createVideoGeneration({
         model: videoModel,
         prompt: finalVideoPrompt,
         firstFrameUrl,
-        durationSeconds: selectedVideoModel.minDuration
+        durationSeconds: videoDurationSeconds,
+        resolution: videoResolution
       }, {
         openRouterApiKey
       });
@@ -322,8 +1265,9 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
         throw new Error("视频任务没有返回 jobId。");
       }
       setVideoJobId(jobId);
+      setVideoStatusDetails(formatVideoStatusDetails(response, jobId));
       setVideoStatus(`视频任务已提交：${jobId}，正在轮询状态。`);
-      await pollVideoJob(jobId);
+      await pollVideoJob(jobId, characterId);
     } catch (error: unknown) {
       setVideoStatus(`视频生成提交失败：${getErrorMessage(error)}`);
     } finally {
@@ -331,8 +1275,9 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
     }
   };
 
-  const pollVideoJob = async (jobId: string) => {
-    const result = await getVideoGenerationStatus(jobId, { openRouterApiKey });
+  const pollVideoJob = async (jobId: string, characterId = activeCharacterId) => {
+    const result = await getVideoGenerationStatus(jobId, { openRouterApiKey, characterId });
+    setVideoStatusDetails(formatVideoStatusDetails(result, jobId));
     if (result.status === "completed" && result.localVideoUrl) {
       const videoUrl = toAbsoluteApiUrl(result.localVideoUrl);
       const preview = {
@@ -342,54 +1287,62 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
       };
       setVideoOutputPreview(preview);
       setFrameVideoInputPreview(preview);
-      setVideoStatus(`视频已下载到 storage/jobs/${jobId}/source.mp4`);
+      setVideoStatus(`视频已下载到 storage/characters/${characterId}/base-character/walk-video/source.mp4`);
       setFrameStatus("视频已载入，可以处理帧。");
       return;
     }
     if (result.status === "failed") {
-      setVideoStatus("视频任务失败，请查看状态详情或调整提示词。");
+      const failureReason = extractVideoFailureReason(result.providerResponse ?? result);
+      setVideoStatus(failureReason ? `视频任务失败：${failureReason}` : "视频任务失败，请查看状态详情或调整提示词。");
       return;
     }
     setVideoStatus(`视频任务状态：${result.status}，继续轮询。`);
     pollTimeoutRef.current = window.setTimeout(() => {
-      void pollVideoJob(jobId).catch((error: unknown) => {
+      void pollVideoJob(jobId, characterId).catch((error: unknown) => {
         setVideoStatus(`视频状态查询失败：${getErrorMessage(error)}`);
       });
     }, 3000);
   };
 
-  const handleProcessFrames = async () => {
+  const handleProcessFourDirection = async () => {
+    const characterId = requireCharacter(setFrameStatus);
+    if (!characterId) {
+      return;
+    }
     if (!videoJobId || !frameVideoInputPreview) {
-      setFrameStatus("请先完成第二段视频生成。");
+      setFrameStatus("请先完成四方向步行视频，或上传帧处理视频。");
       return;
     }
     setIsProcessingFrames(true);
-    setFrameStatus("正在抽帧并抠图...");
+    setFrameStatus("正在抽帧、切四方向、中心化并寻找循环...");
     try {
-      const result = await processVideoFrames({
+      const result = await processFourDirectionVideo({
         jobId: videoJobId,
+        characterId,
         frameCount,
         keyColor,
-        tolerance
+        tolerance,
+        minLoopFrames,
+        maxLoopFrames,
+        exportFrameSize,
+        fps
       });
-      const frameVersion = Date.now().toString(36);
-      const nextFrames = result.frames.map((frame) => ({
-        index: frame.index,
-        url: appendCacheBust(toAbsoluteApiUrl(frame.url), `${frameVersion}-${frame.index}`),
-        hidden: false
-      }));
-      setFrames(nextFrames);
+      setFourDirectionResult(normalizeFourDirectionResult(result));
       setActiveFrameIndex(0);
-      setIsPlayingFrames(false);
-      setFrameStatus(`帧处理完成：${nextFrames.length} 帧。`);
+      setIsPlayingFrames(true);
+      setFrameStatus(`四方向处理完成：抽帧 ${result.frameCount} 帧，已生成走路循环和待机四方向。`);
     } catch (error: unknown) {
-      setFrameStatus(`帧处理失败：${getErrorMessage(error)}`);
+      setFrameStatus(`四方向处理失败：${getErrorMessage(error)}`);
     } finally {
       setIsProcessingFrames(false);
     }
   };
 
   const handleFrameVideoUpload = (file: File) => {
+    const characterId = requireCharacter(setFrameStatus);
+    if (!characterId) {
+      return;
+    }
     if (!file.type.startsWith("video/")) {
       setFrameStatus("上传失败：请选择视频文件。");
       return;
@@ -406,10 +1359,11 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
     });
     setVideoJobId("");
     setFrames([]);
+    setFourDirectionResult(null);
     setActiveFrameIndex(0);
     setIsPlayingFrames(false);
     setFrameStatus(`已载入帧处理视频：${file.name}，正在保存资源。`);
-    void uploadFrameVideoAsset(file)
+    void uploadFrameVideoAsset(file, { characterId })
       .then((asset) => {
         const preview = {
           name: asset.fileName,
@@ -438,29 +1392,450 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
     ));
   };
 
-  const handleSaveDraft = () => {
-    const draft: SpriteAnimatorDraft = {
-      openRouterApiKey,
-      imageModel,
-      videoModel,
-      keyColor,
-      direction,
-      videoDirection,
-      imageGenerationSize,
-      imagePrompt,
-      imagePromptInstructions,
-      finalImagePrompt,
-      finalImagePromptTouched,
-      actionTemplate,
-      actionPrompt,
-      finalVideoPrompt,
-      finalVideoPromptTouched,
-      frameCount,
-      fps,
-      tolerance
-    };
+  const handleChangeVideoModel = (nextModel: string) => {
+    setVideoModel(nextModel);
+    setVideoDurationSeconds(getDefaultVideoDuration(nextModel));
+    setVideoResolution(getDefaultVideoResolution(nextModel));
+  };
+
+  const updateAdvancedAction = (actionKind: AdvancedActionKind, patch: Partial<AdvancedActionState>) => {
+    setAdvancedActions((current) => ({
+      ...current,
+      [actionKind]: {
+        ...current[actionKind],
+        ...patch
+      }
+    }));
+  };
+
+  const getAdvancedPrompt = (actionKind: AdvancedActionKind) => {
+    if (actionKind === "run") {
+      return finalAdvancedRunVideoPrompt;
+    }
+    if (actionKind === "attack-1") {
+      return finalAdvancedAttackPrompt;
+    }
+    return finalAdvancedJumpPrompt;
+  };
+
+  const handleGenerateRunKeyframe = async () => {
+    const characterId = requireCharacter((message) => updateAdvancedAction("run", { status: message }));
+    if (!characterId) {
+      return;
+    }
+    if (!walkDirectionOutputPreview) {
+      updateAdvancedAction("run", { status: "请先生成基础角色生成里的步行 2x2 图。" });
+      return;
+    }
+    updateAdvancedAction("run", {
+      isGeneratingKeyframe: true,
+      status: "正在生成跑步四方向首帧..."
+    });
+    try {
+      const characterTemplateImageDataUrl = await readImageUrlAsDataUrl(walkDirectionOutputPreview.url);
+      const response = await createDirectionTemplateGeneration({
+        templateKind: "run",
+        model: directionImageModel,
+        prompt: finalAdvancedRunPrompt,
+        targetSize: directionImageGenerationSize,
+        keyColor,
+        characterTemplateImageDataUrl
+      }, {
+        openRouterApiKey,
+        publicAssetBaseUrl: FIXED_PUBLIC_ASSET_BASE_URL,
+        characterId
+      });
+      const imageUrl = extractImageUrl(response);
+      const publicUrl = extractPublicUrl(response) ?? imageUrl;
+      if (!imageUrl) {
+        throw new Error("跑步四方向首帧生成没有返回图片。");
+      }
+      const preview = {
+        name: extractFileName(response) ?? "run-4dir.png",
+        url: appendCacheBust(toAbsoluteApiUrl(imageUrl), Date.now().toString(36)),
+        publicUrl
+      };
+      updateAdvancedAction("run", {
+        keyframePreview: preview,
+        inputPreview: preview,
+        status: "跑步四方向首帧已生成，可提交跑步视频任务。"
+      });
+    } catch (error: unknown) {
+      updateAdvancedAction("run", { status: `跑步四方向首帧生成失败：${getErrorMessage(error)}` });
+    } finally {
+      updateAdvancedAction("run", { isGeneratingKeyframe: false });
+    }
+  };
+
+  const handlePrepareAdvancedStartFrame = async (actionKind: Exclude<AdvancedActionKind, "run">) => {
+    const characterId = requireCharacter((message) => updateAdvancedAction(actionKind, { status: message }));
+    if (!characterId) {
+      return;
+    }
+    const label = actionKind === "attack-1" ? "攻击动作1" : "跳跃动作";
+    updateAdvancedAction(actionKind, {
+      isPreparingInput: true,
+      status: `正在准备${label}起始帧...`
+    });
+    try {
+      const response = await prepareAdvancedActionStartFrame({
+        characterId,
+        actionKind,
+        keyColor,
+        tolerance,
+        scale: actionKind === "attack-1" ? advancedAttackStartScale : advancedJumpStartScale
+      });
+      const localUrl = response.localUrl ?? extractImageUrl(response);
+      if (!localUrl) {
+        throw new Error(`${label}起始帧没有返回图片。`);
+      }
+      const preview = {
+        name: response.fileName ?? "input-4dir.png",
+        url: appendCacheBust(toAbsoluteApiUrl(localUrl), Date.now().toString(36)),
+        publicUrl: response.publicUrl ?? toPublicAssetUrl(localUrl)
+      };
+      updateAdvancedAction(actionKind, {
+        inputPreview: preview,
+        ...(actionKind === "attack-1" ? { middleFramePreview: null } : {}),
+        status: `${label}起始帧已准备，可提交视频任务。`
+      });
+    } catch (error: unknown) {
+      updateAdvancedAction(actionKind, { status: `${label}起始帧准备失败：${getErrorMessage(error)}` });
+    } finally {
+      updateAdvancedAction(actionKind, { isPreparingInput: false });
+    }
+  };
+
+  const handleGenerateAttackMidframe = async () => {
+    const actionKind: AdvancedActionKind = "attack-1";
+    const characterId = requireCharacter((message) => updateAdvancedAction(actionKind, { status: message }));
+    if (!characterId) {
+      return;
+    }
+    const startFrame = advancedActions[actionKind].inputPreview;
+    if (!startFrame) {
+      updateAdvancedAction(actionKind, { status: "请先准备攻击动作1起始帧，再生成攻击中间帧。" });
+      return;
+    }
+    if (!advancedAttackMidframeCustomPrompt.trim()) {
+      updateAdvancedAction(actionKind, { status: "请先填写攻击中间帧自定义提示词。" });
+      return;
+    }
+    updateAdvancedAction(actionKind, {
+      isGeneratingMidframe: true,
+      status: "正在生成攻击动作1中间帧..."
+    });
+    try {
+      const startFrameImageDataUrl = await readImageUrlAsDataUrl(startFrame.url);
+      const response = await createAdvancedActionMidframeGeneration({
+        actionKind,
+        model: directionImageModel,
+        prompt: advancedAttackMidframeCustomPrompt,
+        targetSize: directionImageGenerationSize,
+        keyColor,
+        startFrameImageDataUrl
+      }, {
+        openRouterApiKey,
+        publicAssetBaseUrl: FIXED_PUBLIC_ASSET_BASE_URL,
+        characterId
+      });
+      const imageUrl = extractImageUrl(response);
+      const publicUrl = extractPublicUrl(response) ?? imageUrl;
+      if (!imageUrl) {
+        throw new Error("攻击中间帧生成没有返回图片。");
+      }
+      updateAdvancedAction(actionKind, {
+        middleFramePreview: {
+          name: extractFileName(response) ?? "middle-4dir.png",
+          url: appendCacheBust(toAbsoluteApiUrl(imageUrl), Date.now().toString(36)),
+          publicUrl
+        },
+        status: "攻击中间帧已生成，可提交攻击视频任务。"
+      });
+    } catch (error: unknown) {
+      updateAdvancedAction(actionKind, { status: `攻击中间帧生成失败：${getErrorMessage(error)}` });
+    } finally {
+      updateAdvancedAction(actionKind, { isGeneratingMidframe: false });
+    }
+  };
+
+  const handleSubmitAdvancedVideo = async (actionKind: AdvancedActionKind) => {
+    const characterId = requireCharacter((message) => updateAdvancedAction(actionKind, { status: message }));
+    if (!characterId) {
+      return;
+    }
+    const state = advancedActions[actionKind];
+    const firstFrameUrl = state.inputPreview?.publicUrl ?? state.inputPreview?.url ?? "";
+    const label = getAdvancedActionLabel(actionKind);
+    if (!firstFrameUrl) {
+      updateAdvancedAction(actionKind, { status: `请先准备${label}的 2x2 输入图。` });
+      return;
+    }
+    if (!isPublicHttpsUrl(firstFrameUrl)) {
+      updateAdvancedAction(actionKind, { status: `${label}视频模型需要公网 HTTPS 输入图 URL，请重新生成或上传。` });
+      return;
+    }
+    if (actionKind === "attack-1" && !state.middleFramePreview) {
+      updateAdvancedAction(actionKind, { status: "请先生成攻击中间帧，再提交攻击视频任务。" });
+      return;
+    }
+    const middleFrameUrl = state.middleFramePreview?.publicUrl ?? state.middleFramePreview?.url ?? "";
+    if (actionKind === "attack-1" && !isPublicHttpsUrl(middleFrameUrl)) {
+      updateAdvancedAction(actionKind, { status: "攻击中间帧需要公网 HTTPS 图片 URL，请重新生成。" });
+      return;
+    }
+    const inputReferenceUrls = actionKind === "attack-1"
+      ? [middleFrameUrl]
+      : [];
+    updateAdvancedAction(actionKind, {
+      isSubmittingVideo: true,
+      status: `正在提交${label}视频任务...`,
+      statusDetails: ""
+    });
+    try {
+      const response = await createVideoGeneration({
+        model: videoModel,
+        prompt: getAdvancedPrompt(actionKind),
+        firstFrameUrl,
+        inputReferenceUrls,
+        durationSeconds: videoDurationSeconds,
+        resolution: videoResolution
+      }, {
+        openRouterApiKey
+      });
+      const jobId = extractJobId(response);
+      if (!jobId) {
+        throw new Error("视频任务没有返回 jobId。");
+      }
+      updateAdvancedAction(actionKind, {
+        jobId,
+        status: `${label}视频任务已提交：${jobId}，正在轮询状态。`,
+        statusDetails: formatVideoStatusDetails(response, jobId)
+      });
+      await pollAdvancedVideoJob(jobId, characterId, actionKind);
+    } catch (error: unknown) {
+      updateAdvancedAction(actionKind, { status: `${label}视频生成提交失败：${getErrorMessage(error)}` });
+    } finally {
+      updateAdvancedAction(actionKind, { isSubmittingVideo: false });
+    }
+  };
+
+  const pollAdvancedVideoJob = async (jobId: string, characterId: string, actionKind: AdvancedActionKind) => {
+    const label = getAdvancedActionLabel(actionKind);
+    const result = await getVideoGenerationStatus(jobId, { openRouterApiKey, characterId, actionKind });
+    updateAdvancedAction(actionKind, {
+      statusDetails: formatVideoStatusDetails(result, jobId)
+    });
+    if (result.status === "completed" && result.localVideoUrl) {
+      const preview = {
+        name: "source.mp4",
+        url: toAbsoluteApiUrl(result.localVideoUrl),
+        publicUrl: result.localVideoUrl
+      };
+      updateAdvancedAction(actionKind, {
+        outputPreview: preview,
+        status: `${label}视频已下载到 storage/characters/${characterId}/advanced-character/${actionKind}/video/source.mp4`
+      });
+      return;
+    }
+    if (result.status === "failed") {
+      const failureReason = extractVideoFailureReason(result.providerResponse ?? result);
+      updateAdvancedAction(actionKind, {
+        status: failureReason ? `${label}视频任务失败：${failureReason}` : `${label}视频任务失败，请查看状态详情或调整提示词。`
+      });
+      return;
+    }
+    updateAdvancedAction(actionKind, { status: `${label}视频任务状态：${result.status}，继续轮询。` });
+    pollTimeoutRef.current = window.setTimeout(() => {
+      void pollAdvancedVideoJob(jobId, characterId, actionKind).catch((error: unknown) => {
+        updateAdvancedAction(actionKind, { status: `${label}视频状态查询失败：${getErrorMessage(error)}` });
+      });
+    }, 3000);
+  };
+
+  const handleProcessAdvancedAction = async (actionKind: AdvancedActionKind) => {
+    const characterId = requireCharacter((message) => updateAdvancedAction(actionKind, { status: message }));
+    if (!characterId) {
+      return;
+    }
+    const state = advancedActions[actionKind];
+    const label = getAdvancedActionLabel(actionKind);
+    if (!state.jobId || !state.outputPreview) {
+      updateAdvancedAction(actionKind, { status: `请先完成${label}视频生成或上传。` });
+      return;
+    }
+    updateAdvancedAction(actionKind, {
+      isProcessing: true,
+      status: `正在处理${label}视频帧...`
+    });
+    try {
+      const result = await processAdvancedActionVideo({
+        jobId: state.jobId,
+        characterId,
+        actionKind,
+        mode: actionKind === "run" ? "loop" : "oneshot",
+        frameCount,
+        keyColor,
+        tolerance,
+        minLoopFrames,
+        maxLoopFrames,
+        exportFrameSize,
+        fps
+      });
+      updateAdvancedAction(actionKind, {
+        result: normalizeFourDirectionResult(result),
+        status: `${label}处理完成：抽帧 ${result.frameCount} 帧。`
+      });
+    } catch (error: unknown) {
+      updateAdvancedAction(actionKind, { status: `${label}处理失败：${getErrorMessage(error)}` });
+    } finally {
+      updateAdvancedAction(actionKind, { isProcessing: false });
+    }
+  };
+
+  const handleReferenceImageUpload = async (kind: Module01ReferenceImageKind, file: File) => {
+    if (!file.type.startsWith("image/")) {
+      setReferenceSettingsStatus("上传失败：请选择图片文件。");
+      return;
+    }
+    const label = REFERENCE_IMAGE_LABELS[kind];
+    setReferenceSettingsStatus(`正在上传并覆盖${label}...`);
+    try {
+      await uploadModule01ReferenceImage(kind, file);
+      setReferenceImageVersion(Date.now().toString(36));
+      setReferenceSettingsStatus(`${label}已全局覆盖。`);
+    } catch (error: unknown) {
+      setReferenceSettingsStatus(`${label}保存失败：${getErrorMessage(error)}`);
+    }
+  };
+
+  const applyWorkflowDraft = (draft: SpriteAnimatorDraft) => {
+    setImageModel(draft.imageModel);
+    setVideoModel(draft.videoModel);
+    setKeyColor(draft.keyColor);
+    setVideoDurationSeconds(draft.videoDurationSeconds);
+    setVideoResolution(draft.videoResolution);
+    setImageGenerationSize(draft.imageGenerationSize);
+    setImageStyle(draft.imageStyle);
+    setImageSystemPrompt(draft.imageSystemPrompt);
+    setImageCustomPrompt(draft.imageCustomPrompt);
+    setFinalImagePrompt(draft.finalImagePrompt);
+    setDirectionImageModel(draft.directionImageModel);
+    setDirectionImageGenerationSize(draft.directionImageGenerationSize);
+    setDirectionIdleSystemPrompt(draft.directionIdleSystemPrompt);
+    setDirectionIdleCustomPrompt(draft.directionIdleCustomPrompt);
+    setFinalDirectionIdlePrompt(draft.finalDirectionIdlePrompt);
+    setDirectionWalkSystemPrompt(draft.directionWalkSystemPrompt);
+    setDirectionWalkCustomPrompt(draft.directionWalkCustomPrompt);
+    setFinalDirectionWalkPrompt(draft.finalDirectionWalkPrompt);
+    setVideoSystemPrompt(draft.videoSystemPrompt);
+    setVideoCustomPrompt(draft.videoCustomPrompt);
+    setFinalVideoPrompt(draft.finalVideoPrompt);
+    setAdvancedRunSystemPrompt(draft.advancedRunSystemPrompt);
+    setAdvancedRunCustomPrompt(draft.advancedRunCustomPrompt);
+    setFinalAdvancedRunPrompt(draft.finalAdvancedRunPrompt);
+    setAdvancedRunVideoSystemPrompt(draft.advancedRunVideoSystemPrompt);
+    setAdvancedRunVideoCustomPrompt(draft.advancedRunVideoCustomPrompt);
+    setFinalAdvancedRunVideoPrompt(draft.finalAdvancedRunVideoPrompt);
+    setAdvancedAttackSystemPrompt(draft.advancedAttackSystemPrompt);
+    setAdvancedAttackCustomPrompt(draft.advancedAttackCustomPrompt);
+    setFinalAdvancedAttackPrompt(draft.finalAdvancedAttackPrompt);
+    setAdvancedAttackMidframeCustomPrompt(draft.advancedAttackMidframeCustomPrompt);
+    setAdvancedAttackStartScale(draft.advancedAttackStartScale);
+    setAdvancedJumpSystemPrompt(draft.advancedJumpSystemPrompt);
+    setAdvancedJumpCustomPrompt(draft.advancedJumpCustomPrompt);
+    setFinalAdvancedJumpPrompt(draft.finalAdvancedJumpPrompt);
+    setAdvancedJumpStartScale(draft.advancedJumpStartScale);
+    setFrameCount(draft.frameCount);
+    setFps(draft.fps);
+    setTolerance(draft.tolerance);
+    setMinLoopFrames(draft.minLoopFrames);
+    setMaxLoopFrames(draft.maxLoopFrames);
+    setExportFrameSize(draft.exportFrameSize);
+  };
+
+  const buildCurrentDraft = (): SpriteAnimatorDraft => ({
+    openRouterApiKey,
+    imageModel,
+    videoModel,
+    keyColor,
+    videoDurationSeconds,
+    videoResolution,
+    imageGenerationSize,
+    imageStyle,
+    imageSystemPrompt,
+    imageCustomPrompt,
+    finalImagePrompt: currentFinalImagePrompt,
+    directionImageModel,
+    directionImageGenerationSize,
+    directionIdleSystemPrompt,
+    directionIdleCustomPrompt,
+    finalDirectionIdlePrompt,
+    directionWalkSystemPrompt,
+    directionWalkCustomPrompt,
+    finalDirectionWalkPrompt,
+    videoSystemPrompt,
+    videoCustomPrompt,
+    finalVideoPrompt,
+    advancedRunSystemPrompt,
+    advancedRunCustomPrompt,
+    finalAdvancedRunPrompt,
+    advancedRunVideoSystemPrompt,
+    advancedRunVideoCustomPrompt,
+    finalAdvancedRunVideoPrompt,
+    advancedAttackSystemPrompt,
+    advancedAttackCustomPrompt,
+    finalAdvancedAttackPrompt,
+    advancedAttackMidframeCustomPrompt,
+    advancedAttackStartScale,
+    advancedJumpSystemPrompt,
+    advancedJumpCustomPrompt,
+    finalAdvancedJumpPrompt,
+    advancedJumpStartScale,
+    frameCount,
+    fps,
+    tolerance,
+    minLoopFrames,
+    maxLoopFrames,
+    exportFrameSize,
+    exportFrameSizeDefaultVersion: EXPORT_FRAME_SIZE_DEFAULT_VERSION,
+    directionPromptDefaultVersion: DIRECTION_PROMPT_DEFAULT_VERSION
+  });
+
+  const saveDraft = async () => {
+    const draft = buildCurrentDraft();
     localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(draft));
-    setFirstFrameStatus("配置已覆盖保存。");
+    await saveModule01WorkflowConfig(toBackendWorkflowDraft(draft));
+  };
+
+  const handleSaveFirstFrameDraft = async () => {
+    setFirstFrameStatus("正在保存基准模板配置到后端...");
+    try {
+      await saveDraft();
+      setFirstFrameStatus("基准模板配置已保存到后端并完全覆盖。");
+    } catch (error: unknown) {
+      setFirstFrameStatus(`基准模板配置保存失败：${getErrorMessage(error)}`);
+    }
+  };
+
+  const handleSaveDirectionTemplateDraft = async () => {
+    setDirectionTemplateStatus("正在保存四方向模板配置到后端...");
+    try {
+      await saveDraft();
+      setDirectionTemplateStatus("四方向模板配置已保存到后端并完全覆盖。");
+    } catch (error: unknown) {
+      setDirectionTemplateStatus(`四方向模板配置保存失败：${getErrorMessage(error)}`);
+    }
+  };
+
+  const handleSaveVideoDraft = async () => {
+    setVideoStatus("正在保存视频配置到后端...");
+    try {
+      await saveDraft();
+      setVideoStatus("视频配置已保存到后端并完全覆盖。");
+    } catch (error: unknown) {
+      setVideoStatus(`视频配置保存失败：${getErrorMessage(error)}`);
+    }
   };
 
   return (
@@ -469,17 +1844,144 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
         <button className="icon-button" type="button" onClick={onBack} aria-label="返回工作台首页">
           <ArrowLeft size={18} />
         </button>
-        <div className="nav-brand">工作台</div>
-        <button className="nav-item nav-item-active" type="button">
-          <Film size={18} /> 动画生成
+        <div className="nav-brand">模块 01</div>
+        <div className="nav-group-title">设置</div>
+        <button
+          className={["nav-item", activePage === "reference-settings" ? "nav-item-active" : ""].filter(Boolean).join(" ")}
+          type="button"
+          onClick={() => setActivePage("reference-settings")}
+        >
+          <Settings size={18} /> 参考图设置
+        </button>
+        <section className="character-panel" aria-label="角色文件夹">
+          <div className="nav-group-title">角色</div>
+          <label className="field compact-field">
+            当前角色
+            <div className="character-select-row">
+              <select
+                aria-label="当前角色"
+                value={activeCharacterId}
+                onChange={(event) => handleSelectCharacter(event.target.value)}
+              >
+                <option value="">未选择角色</option>
+                {activeCharacterId && !characters.some((character) => character.id === activeCharacterId) ? (
+                  <option value={activeCharacterId}>{activeCharacterId}</option>
+                ) : null}
+                {characters.map((character) => (
+                  <option key={character.id} value={character.id}>{character.name}</option>
+                ))}
+              </select>
+              <button
+                aria-label={activeCharacterId ? `删除角色 ${activeCharacterId}` : "删除角色"}
+                className="icon-button character-delete-button"
+                type="button"
+                disabled={!activeCharacterId || deletingCharacterId === activeCharacterId}
+                onClick={() => {
+                  const character = characters.find((item) => item.id === activeCharacterId) ?? { id: activeCharacterId, name: activeCharacterId };
+                  void handleDeleteCharacter(character);
+                }}
+              >
+                <Trash2 size={14} />
+              </button>
+            </div>
+          </label>
+          <label className="field compact-field">
+            新建角色
+            <input
+              aria-label="新建角色名称"
+              placeholder="角色名"
+              value={newCharacterName}
+              onChange={(event) => setNewCharacterName(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  void handleCreateCharacter();
+                }
+              }}
+            />
+          </label>
+          <button
+            className="tool-button"
+            type="button"
+            disabled={isCreatingCharacter}
+            onClick={() => void handleCreateCharacter()}
+          >
+            {isCreatingCharacter ? "创建中" : "创建角色"}
+          </button>
+          <span className="character-status">{characterStatus}</span>
+        </section>
+        <button
+          className={["nav-item", activePage === "base-template" ? "nav-item-active" : ""].filter(Boolean).join(" ")}
+          type="button"
+          onClick={() => setActivePage("base-template")}
+        >
+          <WandSparkles size={18} /> 角色基准模板生成
+        </button>
+        <div className="nav-group-title">基础角色生成</div>
+        <button
+          className={["nav-item", "nav-sub-item", activePage === "direction-templates" ? "nav-item-active" : ""].filter(Boolean).join(" ")}
+          type="button"
+          onClick={() => setActivePage("direction-templates")}
+        >
+          四方向模板图生成
+        </button>
+        <button
+          className={["nav-item", "nav-sub-item", activePage === "walk-videos" ? "nav-item-active" : ""].filter(Boolean).join(" ")}
+          type="button"
+          onClick={() => setActivePage("walk-videos")}
+        >
+          四方向步行视频
+        </button>
+        <button
+          className={["nav-item", "nav-sub-item", activePage === "loop-export" ? "nav-item-active" : ""].filter(Boolean).join(" ")}
+          type="button"
+          onClick={() => setActivePage("loop-export")}
+        >
+          智能循环与导出
+        </button>
+        <div className="nav-group-title">进阶角色生成</div>
+        <button
+          className={["nav-item", "nav-sub-item", activePage === "advanced-run" ? "nav-item-active" : ""].filter(Boolean).join(" ")}
+          type="button"
+          onClick={() => setActivePage("advanced-run")}
+        >
+          跑步四方向
+        </button>
+        <button
+          className={["nav-item", "nav-sub-item", activePage === "advanced-attack-1" ? "nav-item-active" : ""].filter(Boolean).join(" ")}
+          type="button"
+          onClick={() => setActivePage("advanced-attack-1")}
+        >
+          攻击动作1
+        </button>
+        <button
+          className={["nav-item", "nav-sub-item", activePage === "advanced-jump" ? "nav-item-active" : ""].filter(Boolean).join(" ")}
+          type="button"
+          onClick={() => setActivePage("advanced-jump")}
+        >
+          跳跃动作
+        </button>
+        <button
+          className={["nav-item", activePage === "one-click-character" ? "nav-item-active" : ""].filter(Boolean).join(" ")}
+          type="button"
+          onClick={() => setActivePage("one-click-character")}
+        >
+          <WandSparkles size={18} /> 一键生成角色
+        </button>
+        <button
+          className={["nav-item", activePage === "character-preview" ? "nav-item-active" : ""].filter(Boolean).join(" ")}
+          type="button"
+          onClick={() => setActivePage("character-preview")}
+        >
+          <Gamepad2 size={18} /> 角色预览
         </button>
       </aside>
 
       <section className="main-stage">
         <header className="tool-header">
           <div>
-            <p className="eyebrow">模块 01</p>
-            <h1>AI 精灵动画生成</h1>
+            <p className="eyebrow">模块 01 / {MODULE_PAGES[activePage]}</p>
+            <h1>2D精美角色动画生成</h1>
           </div>
           <div className="toolbar">
             <label className="api-key-field">
@@ -497,34 +1999,214 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
               <span>固定公网资源地址</span>
               <code>{FIXED_PUBLIC_ASSET_BASE_URL}</code>
             </div>
-            <button className="tool-button" type="button" onClick={handleSaveDraft}>
-              <Save size={16} /> 保存当前配置
-            </button>
           </div>
         </header>
 
         <div className="workflow-stack">
+          {activePage === "reference-settings" ? (
+            <WorkflowStage
+              title="参考图设置"
+              status={referenceSettingsStatus}
+              mediaPanes={[
+                {
+                  title: "赛璐璐画风参考图",
+                  content: <ImagePreview alt="赛璐璐画风参考图预览" preview={builtInStyleReferencePreview} emptyLabel="等待赛璐璐画风参考图" />
+                },
+                {
+                  title: "四方向步行参考图",
+                  content: <ImagePreview alt="四方向步行参考图预览" preview={builtInWalkReferencePreview} emptyLabel="等待四方向步行参考图" />
+                },
+                {
+                  title: "四方向待机参考图",
+                  content: <ImagePreview alt="四方向待机参考图预览" preview={builtInIdleReferencePreview} emptyLabel="等待四方向待机参考图" />
+                },
+                {
+                  title: "四方向跑步参考图",
+                  content: <ImagePreview alt="四方向跑步参考图预览" preview={builtInRunReferencePreview} emptyLabel="等待四方向跑步参考图" />
+                }
+              ]}
+              controls={(
+                <div className="control-row">
+                  <ReferenceImageUploadButton kind="style" label="赛璐璐画风参考图" onUpload={handleReferenceImageUpload} />
+                  <ReferenceImageUploadButton kind="walk" label="四方向步行参考图" onUpload={handleReferenceImageUpload} />
+                  <ReferenceImageUploadButton kind="idle" label="四方向待机参考图" onUpload={handleReferenceImageUpload} />
+                  <ReferenceImageUploadButton kind="run" label="四方向跑步参考图" onUpload={handleReferenceImageUpload} />
+                </div>
+              )}
+            />
+          ) : null}
+
+          {activePage === "one-click-character" ? (
+            <WorkflowStage
+              title="一键生成角色"
+              status={oneClickStatus}
+              mediaPanes={[
+                {
+                  title: "画风参考",
+                  content: <ImagePreview alt="一键生成画风参考图预览" preview={builtInStyleReferencePreview} emptyLabel="等待画风参考图" />
+                },
+                {
+                  title: "角色参考",
+                  content: <ImagePreview alt="一键生成角色参考图预览" preview={oneClickReferencePreview} emptyLabel="等待角色参考图" />
+                },
+                {
+                  title: "生成结果",
+                  content: <ImagePreview alt="一键生成基准模板预览" preview={firstFrameOutputPreview} emptyLabel="完成后自动加载角色结果" />
+                }
+              ]}
+              controls={(
+                <>
+                  <div className="form-grid">
+                    <label className="field">
+                      角色名称
+                      <input
+                        aria-label="一键生成角色名称"
+                        placeholder="输入新角色名"
+                        value={oneClickCharacterName}
+                        onChange={(event) => setOneClickCharacterName(event.target.value)}
+                      />
+                    </label>
+                    <label className="field">
+                      图片风格
+                      <select aria-label="一键生成图片风格" value={imageStyle} onChange={(event) => setImageStyle(event.target.value)}>
+                        {IMAGE_STYLES.map((style) => (
+                          <option key={style.id} value={style.id}>{style.label}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="field">
+                      图像模型
+                      <select aria-label="一键生成图像模型" value={imageModel} onChange={(event) => setImageModel(event.target.value)}>
+                        {IMAGE_MODELS.map((model) => (
+                          <option key={model.id} value={model.id}>{model.label}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="field">
+                      图片生成尺寸
+                      <select aria-label="一键生成图片尺寸" value={imageGenerationSize} onChange={(event) => setImageGenerationSize(Number(event.target.value))}>
+                        {imageGenerationSizeOptions.map((option) => (
+                          <option key={option.size} value={option.size}>{option.label}</option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+                  <div className="control-row">
+                    <label className="file-picker">
+                      <Upload size={16} /> 上传角色参考图
+                      <input
+                        aria-label="一键生成角色参考图"
+                        className="visually-hidden"
+                        type="file"
+                        accept="image/*"
+                        onChange={(event) => {
+                          const file = event.target.files?.[0];
+                          if (file) {
+                            handleOneClickReferenceUpload(file);
+                          }
+                        }}
+                      />
+                    </label>
+                    <button
+                      className="tool-button primary"
+                      type="button"
+                      disabled={isStartingOneClick}
+                      onClick={() => void handleStartOneClickCharacterJob()}
+                    >
+                      <WandSparkles size={16} /> {isStartingOneClick ? "启动中" : "开始一键生成角色"}
+                    </button>
+                  </div>
+                  <div className="one-click-action-grid" aria-label="一键生成动作选择">
+                    <label><input aria-label="一键生成步行" type="checkbox" checked disabled readOnly /> 步行</label>
+                    <label><input aria-label="一键生成待机" type="checkbox" checked disabled readOnly /> 待机</label>
+                    <label><input aria-label="一键生成跑步" type="checkbox" checked={oneClickIncludeRun} onChange={(event) => setOneClickIncludeRun(event.target.checked)} /> 跑步</label>
+                    <label><input aria-label="一键生成攻击动作1" type="checkbox" checked={oneClickIncludeAttack} onChange={(event) => setOneClickIncludeAttack(event.target.checked)} /> 攻击动作1</label>
+                    <label><input aria-label="一键生成跳跃" type="checkbox" checked={oneClickIncludeJump} onChange={(event) => setOneClickIncludeJump(event.target.checked)} /> 跳跃</label>
+                  </div>
+                  <div className="one-click-progress-panel">
+                    <div className="one-click-progress-header">
+                      <span>生成进度</span>
+                      <strong>{oneClickProgress}%</strong>
+                    </div>
+                    <div
+                      aria-label="一键生成进度"
+                      aria-valuemax={100}
+                      aria-valuemin={0}
+                      aria-valuenow={oneClickProgress}
+                      className="one-click-progress-bar"
+                      role="progressbar"
+                    >
+                      <span style={{ width: `${oneClickProgress}%` }} />
+                    </div>
+                    <div className="one-click-step-list">
+                      {(oneClickJob?.steps ?? []).map((step) => (
+                        <span key={step.id} className={`one-click-step one-click-step-${step.status}`}>
+                          {step.label}：{formatOneClickStepStatus(step.status)}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              )}
+              footer={(
+                <div className="prompt-panel">
+                  <div className="prompt-grid">
+                    <label className="field">
+                      系统提示词
+                      <textarea aria-label="一键生成系统提示词" value={imageSystemPrompt} rows={7} onChange={(event) => setImageSystemPrompt(event.target.value)} />
+                    </label>
+                    <label className="field">
+                      自定义提示词
+                      <textarea aria-label="一键生成自定义提示词" value={imageCustomPrompt} rows={7} onChange={(event) => setImageCustomPrompt(event.target.value)} />
+                    </label>
+                  </div>
+                  <label className="field prompt-final">
+                    最终图片提示词
+                    <textarea aria-label="一键生成最终图片提示词" value={currentFinalImagePrompt} rows={5} readOnly />
+                  </label>
+                </div>
+              )}
+            />
+          ) : null}
+
+          {activePage === "base-template" ? (
           <WorkflowStage
-            title="第一段 首帧处理"
+            title="角色基准模板生成"
             status={firstFrameStatus}
-            inputTitle="输入预览"
-            outputTitle="输出预览"
-            input={<ImagePreview alt="首帧输入预览" preview={firstFrameInputPreview} emptyLabel="等待输入图" />}
-            output={<ImagePreview alt="首帧输出预览" preview={firstFrameOutputPreview} emptyLabel="等待处理结果" />}
+            mediaPanes={[
+              {
+                title: "画风参考",
+                content: (
+                  <ImagePreview
+                    alt="赛璐璐画风参考图预览"
+                    preview={builtInStyleReferencePreview}
+                    emptyLabel="等待内置画风参考图"
+                  />
+                )
+              },
+              {
+                title: "角色参考",
+                content: <ImagePreview alt="角色参考图预览" preview={characterReferencePreview} emptyLabel="等待角色参考图" />
+              },
+              {
+                title: "基准模板",
+                content: <ImagePreview alt="基准模板输出预览" preview={firstFrameOutputPreview} emptyLabel="等待基准模板" />
+              }
+            ]}
             controls={(
               <>
                 <div className="control-row">
                   <label className="file-picker">
-                    <Upload size={16} /> 上传输入图片
+                    <Upload size={16} /> 上传角色参考图
                     <input
-                      aria-label="上传输入图片"
+                      aria-label="上传角色参考图"
                       className="visually-hidden"
                       type="file"
                       accept="image/*"
                       onChange={(event) => {
                         const file = event.target.files?.[0];
                         if (file) {
-                          handleFirstFrameUpload(file);
+                          handleCharacterReferenceUpload(file);
                         }
                       }}
                     />
@@ -535,88 +2217,275 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
                     disabled={isProcessingFirstFrame}
                     onClick={() => void handleProcessFirstFrame()}
                   >
-                    <WandSparkles size={16} /> {isProcessingFirstFrame ? "处理中" : "处理首帧"}
+                    <WandSparkles size={16} /> {isProcessingFirstFrame ? "处理中" : "生成基准模板"}
                   </button>
                 </div>
                 <div className="form-grid">
                   <label className="field">
                     图像模型
-                    <select aria-label="图像模型" value={imageModel} onChange={(event) => setImageModel(event.target.value)}>
+                    <select aria-label="图像模型" value={imageModel} onChange={(event) => {
+                      setImageModel(event.target.value);
+                    }}>
                       {IMAGE_MODELS.map((model) => (
                         <option key={model.id} value={model.id}>{model.label}</option>
                       ))}
                     </select>
                   </label>
-                  <DirectionSelect label="朝向" value={direction} onChange={(value) => {
-                    setDirection(value);
-                    setFinalImagePromptTouched(false);
-                  }} />
                   <label className="field">
                     图片生成尺寸
-                    <input
+                    <select
                       aria-label="图片生成尺寸"
-                      type="number"
-                      min={64}
-                      max={1024}
                       value={imageGenerationSize}
                       onChange={(event) => {
-                        setImageGenerationSize(clamp(Number(event.target.value), 64, 1024));
-                        setFinalImagePromptTouched(false);
+                        setImageGenerationSize(Number(event.target.value));
                       }}
-                    />
+                    >
+                      {imageGenerationSizeOptions.map((option) => (
+                        <option key={option.size} value={option.size}>{option.label}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="field">
+                    图片风格
+                    <select aria-label="图片风格" value={imageStyle} onChange={(event) => {
+                      setImageStyle(event.target.value);
+                    }}>
+                      {IMAGE_STYLES.map((style) => (
+                        <option key={style.id} value={style.id}>{style.label}</option>
+                      ))}
+                    </select>
                   </label>
                   <label className="field">
                     抠图背景
                     <input type="color" value={keyColor} onChange={(event) => {
                       setKeyColor(event.target.value);
-                      setFinalImagePromptTouched(false);
-                      setFinalVideoPromptTouched(false);
                     }} />
                   </label>
                 </div>
-                <label className="field">
-                  上传图公网 URL
-                  <input value={uploadedFirstFramePublicUrl} readOnly />
-                </label>
-                <label className="field">
-                  图片提示词
-                  <textarea value={imagePrompt} rows={3} onChange={(event) => {
-                    setImagePrompt(event.target.value);
-                    setFinalImagePromptTouched(false);
-                  }} />
-                </label>
-                <label className="field">
-                  图片提示词约束
-                  <textarea value={imagePromptInstructions} rows={3} onChange={(event) => {
-                    setImagePromptInstructions(event.target.value);
-                    setFinalImagePromptTouched(false);
-                  }} />
-                </label>
-                <label className="field">
-                  最终图片提示词
-                  <textarea value={finalImagePrompt} rows={4} onChange={(event) => {
-                    setFinalImagePrompt(event.target.value);
-                    setFinalImagePromptTouched(true);
-                  }} />
-                </label>
+                <div className="reference-url-grid reference-url-grid-single">
+                  <label className="field">
+                    角色参考图公网 URL
+                    <input value={uploadedCharacterReferencePublicUrl} readOnly />
+                  </label>
+                </div>
               </>
             )}
+            footer={(
+              <div className="prompt-panel">
+                <div className="prompt-grid">
+                  <label className="field">
+                    系统提示词
+                    <textarea aria-label="系统提示词" value={imageSystemPrompt} rows={7} onChange={(event) => {
+                      setImageSystemPrompt(event.target.value);
+                    }} />
+                  </label>
+                  <label className="field">
+                    自定义提示词
+                    <textarea
+                      aria-label="自定义提示词"
+                      placeholder="填写动作、性格、姿态等本次生成需求"
+                      value={imageCustomPrompt}
+                      rows={7}
+                      onChange={(event) => {
+                      setImageCustomPrompt(event.target.value);
+                    }} />
+                  </label>
+                </div>
+                <label className="field prompt-final">
+                  最终图片提示词
+                  <textarea aria-label="最终图片提示词" value={currentFinalImagePrompt} rows={5} readOnly />
+                </label>
+                <div className="control-row">
+                  <button className="tool-button" type="button" onClick={handleSaveFirstFrameDraft}>
+                    <Save size={16} /> 保存基准模板配置
+                  </button>
+                </div>
+              </div>
+            )}
           />
+          ) : null}
 
+          {activePage === "direction-templates" ? (
           <WorkflowStage
-            title="第二段 视频生成"
+            title="四方向模板图生成"
+            status={directionTemplateStatus}
+            mediaPanes={[
+              {
+                title: "角色基准模板",
+                content: <ImagePreview alt="角色基准模板预览" preview={effectiveDirectionBaseTemplatePreview} emptyLabel="等待基准模板" />
+              },
+              {
+                title: "步行参考",
+                content: <ImagePreview alt="四方向步行参考图预览" preview={builtInWalkReferencePreview} emptyLabel="等待步行参考图" />
+              },
+              {
+                title: "步行 2x2 输出",
+                content: <ImagePreview alt="步行 2x2 输出预览" preview={walkDirectionOutputPreview} emptyLabel="先生成步行 2x2" />
+              },
+              {
+                title: "待机参考",
+                content: <ImagePreview alt="四方向待机参考图预览" preview={builtInIdleReferencePreview} emptyLabel="等待待机参考图" />
+              },
+              {
+                title: "跑步参考",
+                content: <ImagePreview alt="四方向跑步参考图预览" preview={builtInRunReferencePreview} emptyLabel="等待跑步参考图" />
+              },
+              {
+                title: "待机 2x2 输出",
+                content: <ImagePreview alt="待机 2x2 输出预览" preview={idleDirectionOutputPreview} emptyLabel="基于步行 2x2 生成待机" />
+              }
+            ]}
+            controls={(
+              <>
+                <div className="control-row">
+                  <label className="file-picker">
+                    <Upload size={16} /> 上传角色基准模板
+                    <input
+                      aria-label="上传角色基准模板"
+                      className="visually-hidden"
+                      type="file"
+                      accept="image/*"
+                      onChange={(event) => {
+                        const file = event.target.files?.[0];
+                        if (file) {
+                          handleDirectionBaseTemplateUpload(file);
+                        }
+                      }}
+                    />
+                  </label>
+                  <button
+                    className="tool-button primary"
+                    type="button"
+                    disabled={processingDirectionTemplate !== null || !walkDirectionOutputPreview}
+                    onClick={() => void handleGenerateDirectionTemplate("idle")}
+                  >
+                    <WandSparkles size={16} /> {processingDirectionTemplate === "idle" ? "生成中" : "基于步行图生成待机四方向图"}
+                  </button>
+                  <button
+                    className="tool-button primary"
+                    type="button"
+                    disabled={processingDirectionTemplate !== null}
+                    onClick={() => void handleGenerateDirectionTemplate("walk")}
+                  >
+                    <WandSparkles size={16} /> {processingDirectionTemplate === "walk" ? "生成中" : "生成步行四方向图"}
+                  </button>
+                  <span className="state-pill">步行：基准模板 + 后台步行参考；待机：步行 2x2 + 后台待机参考</span>
+                </div>
+                <div className="form-grid">
+                  <label className="field">
+                    四方向图像模型
+                    <select aria-label="四方向图像模型" value={directionImageModel} onChange={(event) => {
+                      setDirectionImageModel(event.target.value);
+                    }}>
+                      {IMAGE_MODELS.map((model) => (
+                        <option key={model.id} value={model.id}>{model.label}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="field">
+                    四方向图片生成尺寸
+                    <select
+                      aria-label="四方向图片生成尺寸"
+                      value={directionImageGenerationSize}
+                      onChange={(event) => {
+                        setDirectionImageGenerationSize(Number(event.target.value));
+                      }}
+                    >
+                      {directionImageGenerationSizeOptions.map((option) => (
+                        <option key={option.size} value={option.size}>{option.label}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="field">
+                    抠图背景
+                    <input type="color" value={keyColor} onChange={(event) => {
+                      setKeyColor(event.target.value);
+                    }} />
+                  </label>
+                </div>
+              </>
+            )}
+            footer={(
+              <div className="prompt-panel direction-prompt-panel">
+                <section className="prompt-section">
+                  <h3>步行四方向提示词</h3>
+                  <div className="prompt-grid">
+                    <label className="field">
+                      步行系统提示词
+                      <textarea aria-label="步行系统提示词" value={directionWalkSystemPrompt} rows={7} onChange={(event) => {
+                        setDirectionWalkSystemPrompt(event.target.value);
+                      }} />
+                    </label>
+                    <label className="field">
+                      步行自定义提示词
+                      <textarea
+                        aria-label="步行自定义提示词"
+                        placeholder="填写步行幅度、性格、节奏等要求"
+                        value={directionWalkCustomPrompt}
+                        rows={7}
+                        onChange={(event) => {
+                          setDirectionWalkCustomPrompt(event.target.value);
+                        }}
+                      />
+                    </label>
+                  </div>
+                  <label className="field prompt-final">
+                    步行最终提示词
+                    <textarea aria-label="步行最终提示词" value={finalDirectionWalkPrompt} rows={5} readOnly />
+                  </label>
+                </section>
+                <section className="prompt-section">
+                  <h3>待机四方向提示词</h3>
+                  <div className="prompt-grid">
+                    <label className="field">
+                      待机系统提示词
+                      <textarea aria-label="待机系统提示词" value={directionIdleSystemPrompt} rows={7} onChange={(event) => {
+                        setDirectionIdleSystemPrompt(event.target.value);
+                      }} />
+                    </label>
+                    <label className="field">
+                      待机自定义提示词
+                      <textarea
+                        aria-label="待机自定义提示词"
+                        placeholder="填写待机姿态、气质、细节要求"
+                        value={directionIdleCustomPrompt}
+                        rows={7}
+                        onChange={(event) => {
+                          setDirectionIdleCustomPrompt(event.target.value);
+                        }}
+                      />
+                    </label>
+                  </div>
+                  <label className="field prompt-final">
+                    待机最终提示词
+                    <textarea aria-label="待机最终提示词" value={finalDirectionIdlePrompt} rows={5} readOnly />
+                  </label>
+                </section>
+                <div className="control-row">
+                  <button className="tool-button" type="button" onClick={handleSaveDirectionTemplateDraft}>
+                    <Save size={16} /> 保存四方向模板配置
+                  </button>
+                </div>
+              </div>
+            )}
+          />
+          ) : null}
+
+          {activePage === "walk-videos" ? (
+          <WorkflowStage
+            title="四方向步行视频"
             status={videoStatus}
             inputTitle="输入预览"
             outputTitle="输出预览"
-            input={<ImagePreview alt="视频输入预览" preview={videoInputPreview} emptyLabel="等待首帧输出" />}
+            input={<ImagePreview alt="视频输入预览" preview={videoInputPreview} emptyLabel="等待四方向步行图" />}
             output={<VideoPreview label="视频输出预览" preview={videoOutputPreview} emptyLabel="等待视频结果" />}
             controls={(
               <>
                 <div className="control-row">
                   <label className="file-picker">
-                    <Upload size={16} /> 上传视频首帧
+                    <Upload size={16} /> 上传四方向步行图
                     <input
-                      aria-label="上传视频首帧"
+                      aria-label="上传四方向步行图"
                       className="visually-hidden"
                       type="file"
                       accept="image/*"
@@ -636,75 +2505,88 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
                   >
                     <Play size={16} /> {isSubmittingVideo ? "提交中" : "提交视频任务"}
                   </button>
-                  <span className="state-pill">当前模型最短时长：{selectedVideoModel.minDuration} 秒</span>
-                  <span className="state-pill">固定 1:1 / 720p / 无音频</span>
+                  <button className="tool-button" type="button" onClick={handleSaveVideoDraft}>
+                    <Save size={16} /> 保存视频配置
+                  </button>
+                  <span className="state-pill">当前参数：{videoDurationSeconds} 秒 / {videoResolution}</span>
+                  <span className="state-pill">固定 1:1 / 无音频</span>
                 </div>
                 <div className="form-grid">
                   <label className="field">
                     视频模型
-                    <select aria-label="视频模型" value={videoModel} onChange={(event) => setVideoModel(event.target.value)}>
+                    <select aria-label="视频模型" value={videoModel} onChange={(event) => handleChangeVideoModel(event.target.value)}>
                       {VIDEO_MODELS.map((model) => (
                         <option key={model.id} value={model.id}>{model.label}</option>
                       ))}
                     </select>
                   </label>
-                  <DirectionSelect label="视频视角" value={videoDirection} onChange={(value) => {
-                    setVideoDirection(value);
-                    setFinalVideoPromptTouched(false);
-                  }} />
                   <label className="field">
-                    动作模板
-                    <select value={actionTemplate} onChange={(event) => {
-                      const nextTemplate = event.target.value as keyof typeof ACTION_TEMPLATES;
-                      setActionTemplate(nextTemplate);
-                      setActionPrompt(ACTION_TEMPLATES[nextTemplate]);
-                      setFinalVideoPromptTouched(false);
-                    }}>
-                      <option value="idle">待机</option>
-                      <option value="walk">行走</option>
-                      <option value="run">奔跑</option>
-                      <option value="jump">跳跃</option>
-                      <option value="attack">攻击</option>
-                      <option value="hit">受击</option>
-                      <option value="defeated">倒地</option>
-                      <option value="custom">自定义</option>
+                    视频时长
+                    <select
+                      aria-label="视频时长"
+                      value={String(videoDurationSeconds)}
+                      onChange={(event) => setVideoDurationSeconds(Number(event.target.value))}
+                    >
+                      {videoDurationOptions.map((duration) => (
+                        <option key={duration} value={duration}>{duration} 秒</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="field">
+                    视频分辨率
+                    <select
+                      aria-label="视频分辨率"
+                      value={videoResolution}
+                      onChange={(event) => setVideoResolution(event.target.value)}
+                    >
+                      {videoResolutionOptions.map((resolution) => (
+                        <option key={resolution} value={resolution}>{resolution}</option>
+                      ))}
                     </select>
                   </label>
                 </div>
                 <label className="field">
-                  动作/模板提示词
-                  <textarea value={actionPrompt} rows={3} onChange={(event) => {
-                    setActionPrompt(event.target.value);
-                    setFinalVideoPromptTouched(false);
+                  视频系统提示词
+                  <textarea aria-label="视频系统提示词" value={videoSystemPrompt} rows={8} onChange={(event) => {
+                    setVideoSystemPrompt(event.target.value);
+                  }} />
+                </label>
+                <label className="field">
+                  视频自定义提示词
+                  <textarea aria-label="视频自定义提示词" value={videoCustomPrompt} rows={4} onChange={(event) => {
+                    setVideoCustomPrompt(event.target.value);
                   }} />
                 </label>
                 <label className="field">
                   最终视频提示词
-                  <textarea value={finalVideoPrompt} rows={4} onChange={(event) => {
-                    setFinalVideoPrompt(event.target.value);
-                    setFinalVideoPromptTouched(true);
-                  }} />
+                  <textarea aria-label="最终视频提示词" value={finalVideoPrompt} rows={6} readOnly />
                 </label>
+                {videoStatusDetails ? (
+                  <details className="status-details">
+                    <summary>视频状态详情</summary>
+                    <pre>{videoStatusDetails}</pre>
+                  </details>
+                ) : null}
               </>
             )}
           />
+          ) : null}
 
-          <WorkflowStage
-            title="第三段 帧处理"
-            status={frameStatus}
-            inputTitle="输入预览"
-            outputTitle="输出预览"
-            input={<VideoPreview label="帧处理视频输入预览" preview={frameVideoInputPreview} emptyLabel="等待下载视频" />}
-            output={(
-              <FramePlayer
-                activeFrame={activeFrame}
-                frames={frames}
-                visibleFrameCount={visibleFrames.length}
-                isPlaying={isPlayingFrames}
-              />
-            )}
-            controls={(
-              <>
+          {activePage === "loop-export" ? (
+          <section className="workflow-stage loop-workflow-stage">
+            <div className="stage-heading">
+              <h2>智能循环与导出</h2>
+              <span>{frameStatus}</span>
+            </div>
+            <div className="loop-top-grid">
+              <MediaPane title="输入视频预览">
+                <VideoPreview label="帧处理视频输入预览" preview={frameVideoInputPreview} emptyLabel="等待下载视频" />
+              </MediaPane>
+              <MediaPane title="待机四方向预览">
+                <IdleSpriteSheetPreview idle={fourDirectionResult?.idle} />
+              </MediaPane>
+              <section className="loop-parameter-panel">
+                <div className="loop-parameter-header">参数与处理</div>
                 <div className="control-row">
                   <label className="file-picker">
                     <Upload size={16} /> 上传帧处理视频
@@ -725,91 +2607,196 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
                     className="tool-button primary"
                     type="button"
                     disabled={isProcessingFrames}
-                    onClick={() => void handleProcessFrames()}
+                    onClick={() => void handleProcessFourDirection()}
                   >
-                    <Scissors size={16} /> {isProcessingFrames ? "处理中" : "处理视频帧"}
+                    <Scissors size={16} /> {isProcessingFrames ? "处理中" : "一键处理"}
                   </button>
                   <button
                     className="tool-button"
                     type="button"
-                    disabled={visibleFrames.length === 0}
-                    onClick={() => {
-                      setIsPlayingFrames(true);
-                      setFrameStatus("播放中");
-                    }}
+                    disabled={activePreviewFrameCount === 0}
+                    onClick={() => setIsPlayingFrames((current) => !current)}
                   >
-                    <Play size={16} /> 播放帧动画
-                  </button>
-                  <button
-                    className="tool-button"
-                    type="button"
-                    disabled={!isPlayingFrames}
-                    onClick={() => {
-                      setIsPlayingFrames(false);
-                      setFrameStatus("已暂停");
-                    }}
-                  >
-                    <Pause size={16} /> 暂停帧动画
-                  </button>
-                  <button
-                    className="tool-button"
-                    type="button"
-                    onClick={() => {
-                      setIsPlayingFrames(false);
-                      setActiveFrameIndex(0);
-                      setFrameStatus("已停止");
-                    }}
-                  >
-                    <Square size={16} /> 停止帧动画
+                    {isPlayingFrames ? <Pause size={16} /> : <Play size={16} />} {isPlayingFrames ? "暂停预览" : "播放预览"}
                   </button>
                 </div>
                 <div className="form-grid">
                   <label className="field">
                     抽帧数量
-                    <input
-                      aria-label="抽帧数量"
-                      type="number"
-                      min={1}
-                      max={120}
-                      value={frameCount}
-                      onChange={(event) => setFrameCount(clamp(Number(event.target.value), 1, 120))}
-                    />
+                    <input aria-label="抽帧数量" type="number" min={1} max={120} value={frameCount} onChange={(event) => setFrameCount(clamp(Number(event.target.value), 1, 120))} />
                   </label>
                   <label className="field">
-                    播放 FPS
-                    <input
-                      aria-label="播放 FPS"
-                      type="number"
-                      min={1}
-                      max={60}
-                      value={fps}
-                      onChange={(event) => setFps(clamp(Number(event.target.value), 1, 60))}
-                    />
+                    预览 FPS
+                    <input aria-label="预览 FPS" type="number" min={1} max={FPS_MAX} value={fps} onChange={(event) => setFps(clamp(Number(event.target.value), 1, FPS_MAX))} />
                   </label>
                   <label className="field">
                     抠图容差
-                    <input
-                      aria-label="抠图容差"
-                      type="number"
-                      min={0}
-                      max={255}
-                      value={tolerance}
-                      onChange={(event) => setTolerance(clamp(Number(event.target.value), 0, 255))}
-                    />
+                    <input aria-label="抠图容差" type="number" min={0} max={255} value={tolerance} onChange={(event) => setTolerance(clamp(Number(event.target.value), 0, 255))} />
+                  </label>
+                  <label className="field">
+                    最小循环帧数
+                    <input aria-label="最小循环帧数" type="number" min={2} max={120} value={minLoopFrames} onChange={(event) => setMinLoopFrames(clamp(Number(event.target.value), 2, 120))} />
+                  </label>
+                  <label className="field">
+                    最大循环帧数
+                    <input aria-label="最大循环帧数" type="number" min={2} max={120} value={maxLoopFrames} onChange={(event) => setMaxLoopFrames(clamp(Number(event.target.value), 2, 120))} />
+                  </label>
+                  <label className="field">
+                    导出单帧尺寸
+                    <input aria-label="导出单帧尺寸" type="number" min={64} max={1024} value={exportFrameSize} onChange={(event) => setExportFrameSize(clamp(Number(event.target.value), 64, 1024))} />
                   </label>
                 </div>
-              </>
-            )}
-            footer={(
-              <FrameTimeline
-                activeFrame={activeFrame}
-                frames={frames}
-                visibleFrameCount={visibleFrames.length}
-                onSelectFrame={handleSelectFrame}
-                onToggleFrame={handleToggleFrame}
-              />
-            )}
-          />
+              </section>
+            </div>
+            <FourDirectionResultPanel
+              result={fourDirectionResult}
+              frameIndex={activeFrameIndex}
+              isPlaying={isPlayingFrames}
+            />
+          </section>
+          ) : null}
+
+          {activePage === "advanced-run" ? (
+            <AdvancedActionStage
+              actionKind="run"
+              title="跑步四方向"
+              status={advancedActions.run.status}
+              builtInReferencePreview={builtInRunReferencePreview}
+              baseInputPreview={walkDirectionOutputPreview}
+              keyframePreview={advancedActions.run.keyframePreview}
+              inputPreview={advancedActions.run.inputPreview}
+              outputPreview={advancedActions.run.outputPreview}
+              result={advancedActions.run.result}
+              statusDetails={advancedActions.run.statusDetails}
+              systemPrompt={advancedRunSystemPrompt}
+              customPrompt={advancedRunCustomPrompt}
+              finalPrompt={finalAdvancedRunPrompt}
+              runVideoSystemPrompt={advancedRunVideoSystemPrompt}
+              runVideoCustomPrompt={advancedRunVideoCustomPrompt}
+              runFinalVideoPrompt={finalAdvancedRunVideoPrompt}
+              videoModel={videoModel}
+              videoDurationSeconds={videoDurationSeconds}
+              videoResolution={videoResolution}
+              videoDurationOptions={videoDurationOptions}
+              videoResolutionOptions={videoResolutionOptions}
+              imageModel={directionImageModel}
+              imageGenerationSize={directionImageGenerationSize}
+              imageGenerationSizeOptions={directionImageGenerationSizeOptions}
+              isGeneratingKeyframe={advancedActions.run.isGeneratingKeyframe}
+              isSubmittingVideo={advancedActions.run.isSubmittingVideo}
+              isProcessing={advancedActions.run.isProcessing}
+              onGenerateKeyframe={() => void handleGenerateRunKeyframe()}
+              onSubmitVideo={() => void handleSubmitAdvancedVideo("run")}
+              onProcess={() => void handleProcessAdvancedAction("run")}
+              onChangeVideoModel={handleChangeVideoModel}
+              onChangeVideoDuration={setVideoDurationSeconds}
+              onChangeVideoResolution={setVideoResolution}
+              onChangeImageModel={setDirectionImageModel}
+              onChangeImageGenerationSize={setDirectionImageGenerationSize}
+              onChangeSystemPrompt={setAdvancedRunSystemPrompt}
+              onChangeCustomPrompt={setAdvancedRunCustomPrompt}
+              onChangeRunVideoSystemPrompt={setAdvancedRunVideoSystemPrompt}
+              onChangeRunVideoCustomPrompt={setAdvancedRunVideoCustomPrompt}
+              onSaveConfig={handleSaveVideoDraft}
+            />
+          ) : null}
+
+          {activePage === "advanced-attack-1" ? (
+            <AdvancedActionStage
+              actionKind="attack-1"
+              title="攻击动作1"
+              status={advancedActions["attack-1"].status}
+              baseInputPreview={idleDirectionOutputPreview}
+              inputPreview={advancedActions["attack-1"].inputPreview}
+              middleFramePreview={advancedActions["attack-1"].middleFramePreview}
+              outputPreview={advancedActions["attack-1"].outputPreview}
+              result={advancedActions["attack-1"].result}
+              statusDetails={advancedActions["attack-1"].statusDetails}
+              systemPrompt={advancedAttackSystemPrompt}
+              customPrompt={advancedAttackCustomPrompt}
+              finalPrompt={finalAdvancedAttackPrompt}
+              videoModel={videoModel}
+              videoDurationSeconds={videoDurationSeconds}
+              videoResolution={videoResolution}
+              videoDurationOptions={videoDurationOptions}
+              videoResolutionOptions={videoResolutionOptions}
+              imageModel={directionImageModel}
+              imageGenerationSize={directionImageGenerationSize}
+              imageGenerationSizeOptions={directionImageGenerationSizeOptions}
+              startScale={advancedAttackStartScale}
+              isGeneratingMidframe={advancedActions["attack-1"].isGeneratingMidframe}
+              isPreparingInput={advancedActions["attack-1"].isPreparingInput}
+              isSubmittingVideo={advancedActions["attack-1"].isSubmittingVideo}
+              isProcessing={advancedActions["attack-1"].isProcessing}
+              onPrepareInput={() => void handlePrepareAdvancedStartFrame("attack-1")}
+              onGenerateMiddleFrame={() => void handleGenerateAttackMidframe()}
+              onSubmitVideo={() => void handleSubmitAdvancedVideo("attack-1")}
+              onProcess={() => void handleProcessAdvancedAction("attack-1")}
+              onChangeVideoModel={handleChangeVideoModel}
+              onChangeVideoDuration={setVideoDurationSeconds}
+              onChangeVideoResolution={setVideoResolution}
+              onChangeImageModel={setDirectionImageModel}
+              onChangeImageGenerationSize={setDirectionImageGenerationSize}
+              onChangeStartScale={setAdvancedAttackStartScale}
+              onChangeSystemPrompt={setAdvancedAttackSystemPrompt}
+              onChangeCustomPrompt={setAdvancedAttackCustomPrompt}
+              attackMidframeCustomPrompt={advancedAttackMidframeCustomPrompt}
+              onChangeAttackMidframeCustomPrompt={setAdvancedAttackMidframeCustomPrompt}
+              onSaveConfig={handleSaveVideoDraft}
+            />
+          ) : null}
+
+          {activePage === "advanced-jump" ? (
+            <AdvancedActionStage
+              actionKind="jump"
+              title="跳跃动作"
+              status={advancedActions.jump.status}
+              baseInputPreview={idleDirectionOutputPreview}
+              inputPreview={advancedActions.jump.inputPreview}
+              outputPreview={advancedActions.jump.outputPreview}
+              result={advancedActions.jump.result}
+              statusDetails={advancedActions.jump.statusDetails}
+              systemPrompt={advancedJumpSystemPrompt}
+              customPrompt={advancedJumpCustomPrompt}
+              finalPrompt={finalAdvancedJumpPrompt}
+              videoModel={videoModel}
+              videoDurationSeconds={videoDurationSeconds}
+              videoResolution={videoResolution}
+              videoDurationOptions={videoDurationOptions}
+              videoResolutionOptions={videoResolutionOptions}
+              imageModel={directionImageModel}
+              imageGenerationSize={directionImageGenerationSize}
+              imageGenerationSizeOptions={directionImageGenerationSizeOptions}
+              startScale={advancedJumpStartScale}
+              isPreparingInput={advancedActions.jump.isPreparingInput}
+              isSubmittingVideo={advancedActions.jump.isSubmittingVideo}
+              isProcessing={advancedActions.jump.isProcessing}
+              onPrepareInput={() => void handlePrepareAdvancedStartFrame("jump")}
+              onSubmitVideo={() => void handleSubmitAdvancedVideo("jump")}
+              onProcess={() => void handleProcessAdvancedAction("jump")}
+              onChangeVideoModel={handleChangeVideoModel}
+              onChangeVideoDuration={setVideoDurationSeconds}
+              onChangeVideoResolution={setVideoResolution}
+              onChangeImageModel={setDirectionImageModel}
+              onChangeImageGenerationSize={setDirectionImageGenerationSize}
+              onChangeStartScale={setAdvancedJumpStartScale}
+              onChangeSystemPrompt={setAdvancedJumpSystemPrompt}
+              onChangeCustomPrompt={setAdvancedJumpCustomPrompt}
+              onSaveConfig={handleSaveVideoDraft}
+            />
+          ) : null}
+
+          {activePage === "character-preview" ? (
+            <CharacterPreviewStage
+              characterId={activeCharacterId}
+              result={fourDirectionResult}
+              advancedActions={{
+                run: advancedActions.run.result,
+                attack1: advancedActions["attack-1"].result,
+                jump: advancedActions.jump.result
+              }}
+            />
+          ) : null}
         </div>
       </section>
     </main>
@@ -823,31 +2810,332 @@ function WorkflowStage({
   outputTitle,
   input,
   output,
+  mediaPanes,
   controls,
   footer
 }: {
   title: string;
   status: string;
-  inputTitle: string;
-  outputTitle: string;
-  input: React.ReactNode;
-  output: React.ReactNode;
+  inputTitle?: string;
+  outputTitle?: string;
+  input?: React.ReactNode;
+  output?: React.ReactNode;
+  mediaPanes?: readonly { title: string; content: React.ReactNode }[];
   controls: React.ReactNode;
   footer?: React.ReactNode;
 }) {
+  const resolvedMediaPanes = mediaPanes ?? [
+    { title: inputTitle ?? "输入预览", content: input },
+    { title: outputTitle ?? "输出预览", content: output }
+  ];
   return (
-    <section className="workflow-stage">
+    <section className={["workflow-stage", resolvedMediaPanes.length >= 3 ? "workflow-stage-three-media" : ""].filter(Boolean).join(" ")}>
       <div className="stage-heading">
         <h2>{title}</h2>
         <span>{status}</span>
       </div>
-      <div className="stage-media-grid">
-        <MediaPane title={inputTitle}>{input}</MediaPane>
-        <MediaPane title={outputTitle}>{output}</MediaPane>
+      <div className={["stage-media-grid", resolvedMediaPanes.length >= 3 ? "stage-media-grid-three" : ""].filter(Boolean).join(" ")}>
+        {resolvedMediaPanes.map((pane) => (
+          <MediaPane key={pane.title} title={pane.title}>{pane.content}</MediaPane>
+        ))}
       </div>
       <div className="stage-controls">{controls}</div>
       {footer ? <div className="stage-footer">{footer}</div> : null}
     </section>
+  );
+}
+
+function AdvancedActionStage({
+  actionKind,
+  title,
+  status,
+  builtInReferencePreview,
+  baseInputPreview,
+  keyframePreview,
+  inputPreview,
+  middleFramePreview,
+  outputPreview,
+  result,
+  statusDetails,
+  systemPrompt,
+  customPrompt,
+  finalPrompt,
+  runVideoSystemPrompt,
+  runVideoCustomPrompt,
+  runFinalVideoPrompt,
+  videoModel,
+  videoDurationSeconds,
+  videoResolution,
+  videoDurationOptions,
+  videoResolutionOptions,
+  imageModel,
+  imageGenerationSize,
+  imageGenerationSizeOptions,
+  startScale,
+  isGeneratingKeyframe = false,
+  isGeneratingMidframe = false,
+  isPreparingInput = false,
+  isSubmittingVideo,
+  isProcessing,
+  onGenerateKeyframe,
+  onGenerateMiddleFrame,
+  onPrepareInput,
+  onSubmitVideo,
+  onProcess,
+  onChangeVideoModel,
+  onChangeVideoDuration,
+  onChangeVideoResolution,
+  onChangeImageModel,
+  onChangeImageGenerationSize,
+  onChangeStartScale,
+  onChangeSystemPrompt,
+  onChangeCustomPrompt,
+  onChangeRunVideoSystemPrompt,
+  onChangeRunVideoCustomPrompt,
+  attackMidframeCustomPrompt,
+  onChangeAttackMidframeCustomPrompt,
+  onSaveConfig
+}: {
+  actionKind: AdvancedActionKind;
+  title: string;
+  status: string;
+  builtInReferencePreview?: MediaPreview | null;
+  baseInputPreview?: MediaPreview | null;
+  keyframePreview?: MediaPreview | null;
+  inputPreview?: MediaPreview | null;
+  middleFramePreview?: MediaPreview | null;
+  outputPreview?: MediaPreview | null;
+  result?: ProcessFourDirectionResult | null;
+  statusDetails: string;
+  systemPrompt: string;
+  customPrompt: string;
+  finalPrompt: string;
+  runVideoSystemPrompt?: string;
+  runVideoCustomPrompt?: string;
+  runFinalVideoPrompt?: string;
+  videoModel: string;
+  videoDurationSeconds: number;
+  videoResolution: string;
+  videoDurationOptions: readonly number[];
+  videoResolutionOptions: readonly string[];
+  imageModel: string;
+  imageGenerationSize: number;
+  imageGenerationSizeOptions: readonly ImageGenerationSizeOption[];
+  startScale?: number;
+  isGeneratingKeyframe?: boolean;
+  isGeneratingMidframe?: boolean;
+  isPreparingInput?: boolean;
+  isSubmittingVideo: boolean;
+  isProcessing: boolean;
+  onGenerateKeyframe?: () => void;
+  onGenerateMiddleFrame?: () => void;
+  onPrepareInput?: () => void;
+  onSubmitVideo: () => void;
+  onProcess: () => void;
+  onChangeVideoModel: (model: string) => void;
+  onChangeVideoDuration: (duration: number) => void;
+  onChangeVideoResolution: (resolution: string) => void;
+  onChangeImageModel: (model: string) => void;
+  onChangeImageGenerationSize: (size: number) => void;
+  onChangeStartScale?: (scale: number) => void;
+  onChangeSystemPrompt: (prompt: string) => void;
+  onChangeCustomPrompt: (prompt: string) => void;
+  onChangeRunVideoSystemPrompt?: (prompt: string) => void;
+  onChangeRunVideoCustomPrompt?: (prompt: string) => void;
+  attackMidframeCustomPrompt?: string;
+  onChangeAttackMidframeCustomPrompt?: (prompt: string) => void;
+  onSaveConfig: () => void;
+}) {
+  const mediaPanes = actionKind === "run"
+    ? [
+        {
+          title: "步行 2x2 基准",
+          content: <ImagePreview alt="步行 2x2 基准预览" preview={baseInputPreview ?? null} emptyLabel="等待步行 2x2" />
+        },
+        {
+          title: "跑步参考",
+          content: <ImagePreview alt="四方向跑步参考图预览" preview={builtInReferencePreview ?? null} emptyLabel="等待跑步参考图" />
+        },
+        {
+          title: "跑步首帧",
+          content: <ImagePreview alt="跑步四方向首帧预览" preview={keyframePreview ?? inputPreview ?? null} emptyLabel="等待跑步首帧" />
+        },
+        {
+          title: "跑步视频",
+          content: <VideoPreview label="跑步视频预览" preview={outputPreview ?? null} emptyLabel="等待跑步视频" />
+        }
+      ]
+    : [
+        {
+          title: actionKind === "attack-1" ? "待机四方向基准" : "待机四方向基准",
+          content: <ImagePreview alt={`${title}待机基准预览`} preview={baseInputPreview ?? null} emptyLabel="等待待机四方向" />
+        },
+        {
+          title: actionKind === "attack-1" ? "攻击起始帧" : "跳跃视频",
+          content: actionKind === "attack-1"
+            ? <ImagePreview alt="攻击动作1起始帧预览" preview={inputPreview ?? null} emptyLabel="等待攻击起始帧" />
+            : <VideoPreview label="跳跃视频预览" preview={outputPreview ?? null} emptyLabel="等待跳跃视频" />
+        },
+        ...(actionKind === "attack-1" ? [{
+          title: "攻击中间帧",
+          content: <ImagePreview alt="攻击动作1中间帧预览" preview={middleFramePreview ?? null} emptyLabel="等待攻击中间帧" />
+        }] : []),
+        {
+          title: actionKind === "attack-1" ? "攻击视频" : "动作输出",
+          content: actionKind === "attack-1"
+            ? <VideoPreview label="攻击动作1视频预览" preview={outputPreview ?? null} emptyLabel="等待攻击视频" />
+            : result ? <DirectionPreviewGrid directions={result.directions} frameIndex={0} frameSelector={(direction) => direction.transparentFrames} imageAltSuffix="跳跃动作预览" showLoopInfo /> : <EmptyMedia label="等待动作处理结果" />
+        }
+      ];
+
+  const primaryPromptPrefix = actionKind === "run" ? "跑步首帧" : "视频";
+
+  return (
+    <WorkflowStage
+      title={title}
+      status={status}
+      mediaPanes={mediaPanes}
+      controls={(
+        <>
+          <div className="control-row">
+            {onGenerateKeyframe ? (
+              <button className="tool-button primary" type="button" disabled={isGeneratingKeyframe} onClick={onGenerateKeyframe}>
+                <WandSparkles size={16} /> {isGeneratingKeyframe ? "生成中" : "生成跑步四方向首帧"}
+              </button>
+            ) : null}
+            {onPrepareInput ? (
+              <button className="tool-button primary" type="button" disabled={isPreparingInput} onClick={onPrepareInput}>
+                <WandSparkles size={16} /> {isPreparingInput ? "准备中" : actionKind === "attack-1" ? "准备攻击起始帧" : "准备跳跃起始帧"}
+              </button>
+            ) : null}
+            {onGenerateMiddleFrame ? (
+              <button className="tool-button primary" type="button" disabled={isGeneratingMidframe} onClick={onGenerateMiddleFrame}>
+                <WandSparkles size={16} /> {isGeneratingMidframe ? "生成中" : "生成攻击中间帧"}
+              </button>
+            ) : null}
+            <button className="tool-button" type="button" disabled={isSubmittingVideo} onClick={onSubmitVideo}>
+              <Play size={16} /> {isSubmittingVideo ? "提交中" : "提交视频任务"}
+            </button>
+            <button className="tool-button primary" type="button" disabled={isProcessing} onClick={onProcess}>
+              <Scissors size={16} /> {isProcessing ? "处理中" : "一键处理"}
+            </button>
+            <button className="tool-button" type="button" onClick={onSaveConfig}>
+              <Save size={16} /> 保存视频配置
+            </button>
+          </div>
+          <div className="form-grid">
+            <label className="field">
+              视频模型
+              <select aria-label={`${title}视频模型`} value={videoModel} onChange={(event) => onChangeVideoModel(event.target.value)}>
+                {VIDEO_MODELS.map((model) => (
+                  <option key={model.id} value={model.id}>{model.label}</option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              视频时长
+              <select aria-label={`${title}视频时长`} value={String(videoDurationSeconds)} onChange={(event) => onChangeVideoDuration(Number(event.target.value))}>
+                {videoDurationOptions.map((duration) => (
+                  <option key={duration} value={duration}>{duration} 秒</option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              视频分辨率
+              <select aria-label={`${title}视频分辨率`} value={videoResolution} onChange={(event) => onChangeVideoResolution(event.target.value)}>
+                {videoResolutionOptions.map((resolution) => (
+                  <option key={resolution} value={resolution}>{resolution}</option>
+                ))}
+              </select>
+            </label>
+            {onChangeStartScale ? (
+              <label className="field">
+                准备缩放比例
+                <input
+                  aria-label={`${title}准备缩放比例`}
+                  type="number"
+                  min="0.45"
+                  max="0.95"
+                  step="0.01"
+                  value={startScale ?? 0.75}
+                  onChange={(event) => onChangeStartScale(normalizeAdvancedStartScale(Number(event.target.value), startScale ?? 0.75))}
+                />
+              </label>
+            ) : null}
+          </div>
+          {actionKind === "attack-1" && onChangeAttackMidframeCustomPrompt ? (
+            <section className="prompt-section">
+              <h3>攻击中间帧生成</h3>
+              <div className="form-grid">
+                <label className="field">
+                  中间帧图像模型
+                  <select aria-label="攻击中间帧图像模型" value={imageModel} onChange={(event) => onChangeImageModel(event.target.value)}>
+                    {IMAGE_MODELS.map((model) => (
+                      <option key={model.id} value={model.id}>{model.label}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="field">
+                  中间帧图片尺寸
+                  <select aria-label="攻击中间帧图片尺寸" value={String(imageGenerationSize)} onChange={(event) => onChangeImageGenerationSize(Number(event.target.value))}>
+                    {imageGenerationSizeOptions.map((option) => (
+                      <option key={option.size} value={option.size}>{option.label}</option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              <label className="field">
+                攻击中间帧自定义提示词
+                <textarea
+                  aria-label="攻击中间帧自定义提示词"
+                  value={attackMidframeCustomPrompt ?? ""}
+                  rows={4}
+                  onChange={(event) => onChangeAttackMidframeCustomPrompt(event.target.value)}
+                />
+              </label>
+            </section>
+          ) : null}
+          <label className="field">
+            {primaryPromptPrefix}系统提示词
+            <textarea aria-label={`${primaryPromptPrefix}系统提示词`} value={systemPrompt} rows={7} onChange={(event) => onChangeSystemPrompt(event.target.value)} />
+          </label>
+          <label className="field">
+            {primaryPromptPrefix}自定义提示词
+            <textarea aria-label={`${primaryPromptPrefix}自定义提示词`} value={customPrompt} rows={4} onChange={(event) => onChangeCustomPrompt(event.target.value)} />
+          </label>
+          <label className="field">
+            {primaryPromptPrefix}最终提示词
+            <textarea aria-label={`${primaryPromptPrefix}最终提示词`} value={finalPrompt} rows={5} readOnly />
+          </label>
+          {actionKind === "run" && onChangeRunVideoSystemPrompt && onChangeRunVideoCustomPrompt ? (
+            <section className="prompt-section">
+              <h3>跑步视频提示词</h3>
+              <label className="field">
+                跑步视频系统提示词
+                <textarea aria-label="跑步视频系统提示词" value={runVideoSystemPrompt ?? ""} rows={7} onChange={(event) => onChangeRunVideoSystemPrompt(event.target.value)} />
+              </label>
+              <label className="field">
+                跑步视频自定义提示词
+                <textarea aria-label="跑步视频自定义提示词" value={runVideoCustomPrompt ?? ""} rows={4} onChange={(event) => onChangeRunVideoCustomPrompt(event.target.value)} />
+              </label>
+              <label className="field">
+                跑步视频最终提示词
+                <textarea aria-label="跑步视频最终提示词" value={runFinalVideoPrompt ?? ""} rows={5} readOnly />
+              </label>
+            </section>
+          ) : null}
+          {result ? (
+            <FourDirectionResultPanel result={result} frameIndex={0} isPlaying={false} />
+          ) : null}
+          {statusDetails ? (
+            <details className="status-details">
+              <summary>视频状态详情</summary>
+              <pre>{statusDetails}</pre>
+            </details>
+          ) : null}
+        </>
+      )}
+    />
   );
 }
 
@@ -874,6 +3162,35 @@ function ImagePreview({ alt, preview, emptyLabel }: { alt: string; preview: Medi
   return <img alt={alt} src={preview.url} onError={() => setFailedUrl(preview.url)} />;
 }
 
+function ReferenceImageUploadButton({
+  kind,
+  label,
+  onUpload
+}: {
+  kind: Module01ReferenceImageKind;
+  label: string;
+  onUpload: (kind: Module01ReferenceImageKind, file: File) => void | Promise<void>;
+}) {
+  return (
+    <label className="file-picker">
+      <Upload size={16} /> 上传并覆盖{label}
+      <input
+        aria-label={`上传并覆盖${label}`}
+        className="visually-hidden"
+        type="file"
+        accept="image/*"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          if (file) {
+            void onUpload(kind, file);
+          }
+          event.currentTarget.value = "";
+        }}
+      />
+    </label>
+  );
+}
+
 function VideoPreview({ label, preview, emptyLabel }: { label: string; preview: MediaPreview | null; emptyLabel: string }) {
   if (!preview) {
     return <EmptyMedia label={emptyLabel} />;
@@ -887,6 +3204,547 @@ function EmptyMedia({ label }: { label: string }) {
       <Film size={30} />
       <span>{label}</span>
     </div>
+  );
+}
+
+function DirectionPreviewGrid({
+  directions,
+  frameIndex,
+  frameSelector,
+  imageAltSuffix,
+  showLoopInfo
+}: {
+  directions: readonly DirectionProcessingResult[];
+  frameIndex: number;
+  frameSelector: (direction: DirectionProcessingResult) => readonly ProcessedFrame[];
+  imageAltSuffix: string;
+  showLoopInfo: boolean;
+}) {
+  return (
+    <div className="direction-preview-grid">
+      {directions.map((direction) => {
+        const frames = frameSelector(direction);
+        const frame = frames[frameIndex % Math.max(1, frames.length)];
+        return (
+          <section className="direction-preview-card" key={direction.key}>
+            <div className="direction-preview-title">
+              <strong>{direction.label}</strong>
+              {showLoopInfo ? <span>{direction.loop.startFrame}-{direction.loop.endFrame} / {direction.loop.frameCount} 帧</span> : null}
+            </div>
+            <div className="direction-preview-image">
+              {frame ? <img alt={`${direction.label}${imageAltSuffix}`} src={frame.url} /> : <EmptyMedia label="等待方向帧" />}
+            </div>
+            {showLoopInfo ? <span className="direction-score">评分 {direction.loop.score.toFixed(4)}</span> : null}
+          </section>
+        );
+      })}
+    </div>
+  );
+}
+
+function IdleSpriteSheetPreview({ idle }: { idle: ProcessFourDirectionResult["idle"] | undefined }) {
+  if (!idle?.spriteSheetUrl) {
+    return <EmptyMedia label="等待待机四方向处理" />;
+  }
+  return <img alt="待机四方向预览" src={idle.spriteSheetUrl} />;
+}
+
+function IdleDirectionPreviewGrid({ idle }: { idle: ProcessFourDirectionResult["idle"] | undefined }) {
+  if (!idle?.frames.length) {
+    return <EmptyPanel label="等待待机四方向处理结果" />;
+  }
+  return (
+    <div className="direction-preview-grid">
+      {idle.frames.map((frame) => (
+        <section className="direction-preview-card" key={frame.key}>
+          <div className="direction-preview-title">
+            <strong>{frame.label}</strong>
+            <span>待机</span>
+          </div>
+          <div className="direction-preview-image">
+            <img alt={`${frame.label}待机预览`} src={frame.url} />
+          </div>
+        </section>
+      ))}
+    </div>
+  );
+}
+
+function FourDirectionResultPanel({
+  result,
+  frameIndex,
+  isPlaying
+}: {
+  result: ProcessFourDirectionResult | null;
+  frameIndex: number;
+  isPlaying: boolean;
+}) {
+  return (
+    <div className="loop-result-stack">
+      <div className="loop-preview-duo">
+        <section className="loop-result-section">
+          <div className="loop-section-heading">
+            <h3>四方向最终循环预览</h3>
+            <span>{result ? `${result.directions.length} 个方向 · ${isPlaying ? "播放中" : "已停止"}` : "等待抠图预览"}</span>
+          </div>
+          {result ? (
+            <DirectionPreviewGrid
+              directions={result.directions}
+              frameIndex={frameIndex}
+              frameSelector={(direction) => direction.transparentFrames}
+              imageAltSuffix="最终循环预览"
+              showLoopInfo
+            />
+          ) : <EmptyPanel label="等待一键处理结果" />}
+        </section>
+        <section className="loop-result-section">
+          <div className="loop-section-heading">
+            <h3>待机四方向预览</h3>
+            <span>{result?.idle ? "已拆解、抠图并按走路比例缩放" : "等待待机处理"}</span>
+          </div>
+          <IdleDirectionPreviewGrid idle={result?.idle} />
+        </section>
+      </div>
+      <section className="loop-result-section">
+        <div className="loop-section-heading">
+          <h3>最终导出</h3>
+          <span>透明帧 / 走路 Sprite Sheet / 待机 Sprite Sheet / GIF</span>
+        </div>
+        <div className="export-grid">
+          <div className="sprite-sheet-preview">
+            {result?.spriteSheetUrl ? (
+              <img alt="Sprite Sheet 预览" src={toAbsoluteApiUrl(result.spriteSheetUrl)} />
+            ) : <EmptyMedia label="等待 Sprite Sheet" />}
+          </div>
+          <div className="export-actions">
+            <DownloadLink href={result?.transparentZipUrl} label="导出透明帧 ZIP" />
+            <DownloadLink href={result?.spriteSheetUrl} label="导出走路 Sprite Sheet" />
+            <DownloadLink href={result?.idle?.spriteSheetUrl} label="导出待机 Sprite Sheet" />
+            <DownloadLink href={result?.gifPreviewUrl} label="导出 GIF" />
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function DownloadLink({ href, label }: { href?: string; label: string }) {
+  if (!href) {
+    return <span className="tool-button disabled-link">{label}</span>;
+  }
+  return <a className="tool-button" href={toAbsoluteApiUrl(href)} download>{label}</a>;
+}
+
+function EmptyPanel({ label }: { label: string }) {
+  return <div className="empty-panel">{label}</div>;
+}
+
+function CharacterPreviewStage({
+  characterId,
+  result,
+  advancedActions
+}: {
+  characterId: string;
+  result: ProcessFourDirectionResult | null;
+  advancedActions?: {
+    run?: ProcessFourDirectionResult | null;
+    attack1?: ProcessFourDirectionResult | null;
+    jump?: ProcessFourDirectionResult | null;
+  };
+}) {
+  const previewAssets = useMemo(() => buildCharacterPreviewAssets(result, advancedActions), [advancedActions, result]);
+  const savedPreviewSettings = useMemo(() => loadCharacterPreviewSettings(), []);
+  const [facingDirection, setFacingDirection] = useState<PreviewDirection>("down");
+  const [pressedDirections, setPressedDirections] = useState<PreviewDirection[]>([]);
+  const [isRunPressed, setIsRunPressed] = useState(false);
+  const [oneShotAction, setOneShotAction] = useState<"attack1" | "jump" | null>(null);
+  const [oneShotDirection, setOneShotDirection] = useState<PreviewDirection | null>(null);
+  const [frameIndex, setFrameIndex] = useState(0);
+  const [idleFps, setIdleFps] = useState(savedPreviewSettings.idleFps);
+  const [walkFps, setWalkFps] = useState(savedPreviewSettings.walkFps);
+  const [runFps, setRunFps] = useState(savedPreviewSettings.runFps);
+  const [attackFps, setAttackFps] = useState(savedPreviewSettings.attackFps);
+  const [jumpFps, setJumpFps] = useState(savedPreviewSettings.jumpFps);
+  const [previewSize, setPreviewSize] = useState(savedPreviewSettings.previewSize);
+  const [moveSpeed, setMoveSpeed] = useState(savedPreviewSettings.moveSpeed);
+  const [backgroundMode, setBackgroundMode] = useState<CharacterPreviewBackgroundMode>(savedPreviewSettings.backgroundMode);
+  const [showGuides, setShowGuides] = useState(savedPreviewSettings.showGuides);
+  const [showCellBounds, setShowCellBounds] = useState(savedPreviewSettings.showCellBounds);
+  const [previewSettingsStatus, setPreviewSettingsStatus] = useState("");
+  const [position, setPosition] = useState({ x: 0, y: 0 });
+
+  const movementDirection = pressedDirections.at(-1) ?? facingDirection;
+  const activeDirection = oneShotAction && oneShotDirection ? oneShotDirection : movementDirection;
+  const walkFrames = previewAssets.walk[activeDirection];
+  const runFrames = previewAssets.run[activeDirection];
+  const attackFrames = previewAssets.attack1[activeDirection];
+  const jumpFrames = previewAssets.jump[activeDirection];
+  const idleFrame = previewAssets.idle[activeDirection];
+  const isTryingToWalk = pressedDirections.length > 0;
+  const isRunning = isTryingToWalk && isRunPressed && runFrames.length > 0 && !oneShotAction;
+  const isWalking = isTryingToWalk && !isRunning && walkFrames.length > 0 && !oneShotAction;
+  const activeOneShotFrames = oneShotAction === "attack1" ? attackFrames : oneShotAction === "jump" ? jumpFrames : [];
+  const isPlayingOneShot = Boolean(oneShotAction && activeOneShotFrames.length > 0);
+  const activeMoveFrames = isRunning ? runFrames : walkFrames;
+  const activePlaybackFps = isPlayingOneShot
+    ? oneShotAction === "attack1" ? attackFps : jumpFps
+    : isRunning ? runFps
+    : isWalking ? walkFps
+    : idleFps;
+  const activeFrame = isPlayingOneShot
+    ? activeOneShotFrames[Math.min(frameIndex, activeOneShotFrames.length - 1)]
+    : (isWalking || isRunning)
+    ? activeMoveFrames[frameIndex % activeMoveFrames.length]
+    : idleFrame ?? walkFrames[0];
+  const currentFrameNumber = isPlayingOneShot
+    ? Math.min(frameIndex + 1, activeOneShotFrames.length)
+    : (isWalking || isRunning) && activeMoveFrames.length > 0
+    ? (frameIndex % activeMoveFrames.length) + 1
+    : 1;
+  const actionLabel = isPlayingOneShot ? (oneShotAction === "attack1" ? "攻击动作1" : "跳跃") : isRunning ? "跑步" : isWalking ? "行走" : "待机";
+  const statusLabel = !characterId
+    ? "请先创建或选择角色文件夹"
+    : previewAssets.hasRequiredAssets
+      ? `${actionLabel} / 面朝${PREVIEW_DIRECTION_LABELS[activeDirection]}`
+      : "缺少预览资源，请先完成智能循环与导出";
+
+  const buildPreviewSettings = (): CharacterPreviewSettings => ({
+    idleFps,
+    walkFps,
+    runFps,
+    attackFps,
+    jumpFps,
+    previewSize,
+    moveSpeed,
+    backgroundMode,
+    showGuides,
+    showCellBounds
+  });
+
+  const applyPreviewSettings = (settings: CharacterPreviewSettings) => {
+    setIdleFps(settings.idleFps);
+    setWalkFps(settings.walkFps);
+    setRunFps(settings.runFps);
+    setAttackFps(settings.attackFps);
+    setJumpFps(settings.jumpFps);
+    setPreviewSize(settings.previewSize);
+    setMoveSpeed(settings.moveSpeed);
+    setBackgroundMode(settings.backgroundMode);
+    setShowGuides(settings.showGuides);
+    setShowCellBounds(settings.showCellBounds);
+  };
+
+  const handleSavePreviewSettings = async () => {
+    const settings = buildPreviewSettings();
+    setPreviewSettingsStatus("正在保存预览配置到后端全局配置...");
+    try {
+      saveCharacterPreviewSettings(settings);
+      const currentConfig = await getModule01WorkflowConfig();
+      await saveModule01WorkflowConfig({
+        ...(currentConfig ?? {}),
+        characterPreviewSettings: settings
+      });
+      setPreviewSettingsStatus("预览配置已保存到后端全局配置。");
+    } catch (error: unknown) {
+      setPreviewSettingsStatus(`预览配置保存失败：${getErrorMessage(error)}`);
+    }
+  };
+
+  useEffect(() => {
+    let isCancelled = false;
+    void getModule01WorkflowConfig()
+      .then((config) => {
+        if (isCancelled || !config) {
+          return;
+        }
+        const settings = normalizeCharacterPreviewSettings(
+          config.characterPreviewSettings,
+          loadCharacterPreviewSettings()
+        );
+        applyPreviewSettings(settings);
+        saveCharacterPreviewSettings(settings);
+      })
+      .catch((error: unknown) => {
+        if (!isCancelled) {
+          setPreviewSettingsStatus(`预览配置加载失败：${getErrorMessage(error)}`);
+        }
+      });
+    return () => {
+      isCancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (isTextEntryTarget(event.target)) {
+        return;
+      }
+      const direction = PREVIEW_KEY_TO_DIRECTION[event.key.toLowerCase()];
+      if (event.key === "Shift") {
+        event.preventDefault();
+        setIsRunPressed(true);
+        return;
+      }
+      if (event.key.toLowerCase() === "j") {
+        event.preventDefault();
+        if (attackFrames.length > 0) {
+          setOneShotDirection(activeDirection);
+          setOneShotAction("attack1");
+          setFrameIndex(0);
+        }
+        return;
+      }
+      if (event.code === "Space") {
+        event.preventDefault();
+        if (jumpFrames.length > 0) {
+          setOneShotDirection(activeDirection);
+          setOneShotAction("jump");
+          setFrameIndex(0);
+        }
+        return;
+      }
+      if (!direction) {
+        return;
+      }
+      event.preventDefault();
+      setFacingDirection(direction);
+      setPressedDirections((current) => current.includes(direction) ? current : [...current, direction]);
+    };
+    const handleKeyUp = (event: KeyboardEvent) => {
+      const direction = PREVIEW_KEY_TO_DIRECTION[event.key.toLowerCase()];
+      if (event.key === "Shift") {
+        event.preventDefault();
+        setIsRunPressed(false);
+        return;
+      }
+      if (!direction) {
+        return;
+      }
+      event.preventDefault();
+      setPressedDirections((current) => {
+        const next = current.filter((item) => item !== direction);
+        setFacingDirection(next.at(-1) ?? direction);
+        return next;
+      });
+    };
+    const handleBlur = () => {
+      setPressedDirections([]);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
+    window.addEventListener("blur", handleBlur);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+      window.removeEventListener("blur", handleBlur);
+    };
+  }, [activeDirection, attackFrames.length, jumpFrames.length]);
+
+  useEffect(() => {
+    setFrameIndex(0);
+  }, [activeDirection, isRunning, isWalking, oneShotAction]);
+
+  useEffect(() => {
+    if (isPlayingOneShot) {
+      if (activeOneShotFrames.length <= 1) {
+        return undefined;
+      }
+      const interval = window.setInterval(() => {
+        setFrameIndex((current) => {
+          const next = current + 1;
+          if (next >= activeOneShotFrames.length) {
+            window.clearInterval(interval);
+            setOneShotAction(null);
+            setOneShotDirection(null);
+            return 0;
+          }
+          return next;
+        });
+      }, getPlaybackIntervalMs(activePlaybackFps));
+      return () => window.clearInterval(interval);
+    }
+    if ((!isWalking && !isRunning) || activeMoveFrames.length <= 1) {
+      return undefined;
+    }
+    const interval = window.setInterval(() => {
+      setFrameIndex((current) => (current + 1) % activeMoveFrames.length);
+    }, getPlaybackIntervalMs(activePlaybackFps));
+    return () => window.clearInterval(interval);
+  }, [activeMoveFrames.length, activeOneShotFrames.length, activePlaybackFps, isPlayingOneShot, isRunning, isWalking]);
+
+  useEffect(() => {
+    if (pressedDirections.length === 0 || moveSpeed <= 0 || oneShotAction) {
+      return undefined;
+    }
+    let frameId = 0;
+    let lastTime = performance.now();
+    const tick = (time: number) => {
+      const direction = pressedDirections.at(-1);
+      const vector = direction ? PREVIEW_DIRECTION_VECTORS[direction] : { x: 0, y: 0 };
+      const deltaSeconds = Math.min(0.05, Math.max(0, (time - lastTime) / 1000));
+      lastTime = time;
+      const speed = isRunPressed && runFrames.length > 0 ? moveSpeed * 1.6 : moveSpeed;
+      setPosition((current) => clampPreviewPosition({
+        x: current.x + vector.x * speed * deltaSeconds,
+        y: current.y + vector.y * speed * deltaSeconds
+      }));
+      frameId = window.requestAnimationFrame(tick);
+    };
+    frameId = window.requestAnimationFrame(tick);
+    return () => window.cancelAnimationFrame(frameId);
+  }, [isRunPressed, moveSpeed, oneShotAction, pressedDirections, runFrames.length]);
+
+  useEffect(() => {
+    saveCharacterPreviewSettings({
+      idleFps,
+      walkFps,
+      runFps,
+      attackFps,
+      jumpFps,
+      previewSize,
+      moveSpeed,
+      backgroundMode,
+      showGuides,
+      showCellBounds
+    });
+  }, [attackFps, backgroundMode, idleFps, jumpFps, moveSpeed, previewSize, runFps, showCellBounds, showGuides, walkFps]);
+
+  return (
+    <section className="workflow-stage character-preview-stage">
+      <div className="stage-heading">
+        <h2>角色预览</h2>
+        <span>{statusLabel}</span>
+      </div>
+      <div className="character-preview-layout">
+        <section className="character-preview-screen-panel">
+          <div className={["character-preview-screen", `character-preview-background-${backgroundMode}`].join(" ")}>
+            {showGuides ? (
+              <>
+                <span className="preview-guide-line preview-guide-line-x" />
+                <span className="preview-guide-line preview-guide-line-y" />
+              </>
+            ) : null}
+            {activeFrame ? (
+              <img
+                alt={`角色${actionLabel}预览`}
+                className={["character-preview-avatar", showCellBounds ? "character-preview-avatar-bounded" : ""].filter(Boolean).join(" ")}
+                src={activeFrame.url}
+                style={{
+                  width: `${previewSize}px`,
+                  transform: `translate(calc(-50% + ${position.x}px), calc(-50% + ${position.y}px))`
+                }}
+              />
+            ) : (
+              <EmptyMedia label="等待角色预览资源" />
+            )}
+            <div className="character-preview-hud">
+              <span>{actionLabel}</span>
+              <span>方向：{PREVIEW_DIRECTION_LABELS[activeDirection]}</span>
+              <span>帧：{currentFrameNumber} / {Math.max(1, isPlayingOneShot ? activeOneShotFrames.length : isRunning ? runFrames.length : isWalking ? walkFrames.length : 1)}</span>
+            </div>
+          </div>
+        </section>
+        <section className="character-preview-control-panel">
+          <div className="loop-parameter-header">控制</div>
+          <div className="wasd-pad" aria-label="WASD 控制提示">
+            <kbd>W</kbd>
+            <kbd>A</kbd>
+            <kbd>S</kbd>
+            <kbd>D</kbd>
+            <kbd>Shift</kbd>
+            <kbd>J</kbd>
+            <kbd>Space</kbd>
+          </div>
+          <p className="preview-help-text">WASD 行走，Shift 跑步，J 攻击动作1，Space 跳跃。</p>
+          <div className="form-grid">
+            <label className="field">
+              待机 FPS
+              <input aria-label="角色预览待机 FPS" type="number" min={1} max={FPS_MAX} value={idleFps} onChange={(event) => setIdleFps(clamp(Number(event.target.value), 1, FPS_MAX))} />
+            </label>
+            <label className="field">
+              行走 FPS
+              <input aria-label="角色预览行走 FPS" type="number" min={1} max={FPS_MAX} value={walkFps} onChange={(event) => setWalkFps(clamp(Number(event.target.value), 1, FPS_MAX))} />
+            </label>
+            <label className="field">
+              跑步 FPS
+              <input aria-label="角色预览跑步 FPS" type="number" min={1} max={FPS_MAX} value={runFps} onChange={(event) => setRunFps(clamp(Number(event.target.value), 1, FPS_MAX))} />
+            </label>
+            <label className="field">
+              攻击动作1 FPS
+              <input aria-label="角色预览攻击动作1 FPS" type="number" min={1} max={FPS_MAX} value={attackFps} onChange={(event) => setAttackFps(clamp(Number(event.target.value), 1, FPS_MAX))} />
+            </label>
+            <label className="field">
+              跳跃 FPS
+              <input aria-label="角色预览跳跃 FPS" type="number" min={1} max={FPS_MAX} value={jumpFps} onChange={(event) => setJumpFps(clamp(Number(event.target.value), 1, FPS_MAX))} />
+            </label>
+            <label className="field">
+              显示尺寸
+              <input aria-label="角色预览显示尺寸" type="number" min={160} max={640} value={previewSize} onChange={(event) => setPreviewSize(clamp(Number(event.target.value), 160, 640))} />
+            </label>
+            <label className="field">
+              移动速度
+              <input aria-label="角色预览移动速度" type="number" min={0} max={360} value={moveSpeed} onChange={(event) => setMoveSpeed(clamp(Number(event.target.value), 0, 360))} />
+            </label>
+            <label className="field">
+              舞台背景
+              <select aria-label="角色预览舞台背景" value={backgroundMode} onChange={(event) => setBackgroundMode(normalizeCharacterPreviewBackground(event.target.value))}>
+                <option value="map-1">游戏地图1</option>
+                <option value="map-2">游戏地图2</option>
+                <option value="grid">深色网格</option>
+              </select>
+            </label>
+          </div>
+          <div className="control-row">
+            <button className="tool-button" type="button" onClick={() => void handleSavePreviewSettings()}>
+              <Save size={16} /> 保存预览配置
+            </button>
+            <button className="tool-button" type="button" onClick={() => setPosition({ x: 0, y: 0 })}>
+              <RotateCcw size={16} /> 回到中心
+            </button>
+            <label className="toggle-field">
+              <input type="checkbox" checked={showGuides} onChange={(event) => setShowGuides(event.target.checked)} />
+              显示中心线
+            </label>
+            <label className="toggle-field">
+              <input type="checkbox" checked={showCellBounds} onChange={(event) => setShowCellBounds(event.target.checked)} />
+              显示单帧边界
+            </label>
+          </div>
+          {previewSettingsStatus ? <p className="preview-help-text">{previewSettingsStatus}</p> : null}
+          <div className="preview-resource-grid">
+            <div>
+              <strong>待机</strong>
+              <span>{previewAssets.idleCount} / 4 方向</span>
+            </div>
+            <div>
+              <strong>行走</strong>
+              <span>{previewAssets.walkDirectionCount} / 4 方向，{previewAssets.walkFrameCount} 帧</span>
+            </div>
+            <div>
+              <strong>跑步</strong>
+              <span>{previewAssets.runDirectionCount} / 4 方向，{previewAssets.runFrameCount} 帧</span>
+            </div>
+            <div>
+              <strong>攻击动作1</strong>
+              <span>{previewAssets.attackDirectionCount} / 4 方向，{previewAssets.attackFrameCount} 帧</span>
+            </div>
+            <div>
+              <strong>跳跃</strong>
+              <span>{previewAssets.jumpDirectionCount} / 4 方向，{previewAssets.jumpFrameCount} 帧</span>
+            </div>
+            <div>
+              <strong>角色</strong>
+              <span>{characterId || "未选择"}</span>
+            </div>
+          </div>
+          {previewAssets.missingMessages.length > 0 ? (
+            <div className="preview-warning">
+              {previewAssets.missingMessages.map((message) => <span key={message}>{message}</span>)}
+            </div>
+          ) : null}
+        </section>
+      </div>
+    </section>
   );
 }
 
@@ -982,27 +3840,6 @@ function FrameTimeline({
   );
 }
 
-function DirectionSelect({
-  label,
-  value,
-  onChange
-}: {
-  label: string;
-  value: CharacterDirection;
-  onChange: (value: CharacterDirection) => void;
-}) {
-  return (
-    <label className="field">
-      {label}
-      <select aria-label={label} value={value} onChange={(event) => onChange(event.target.value as CharacterDirection)}>
-        {CHARACTER_DIRECTIONS.map((item) => (
-          <option key={item} value={item}>{CHARACTER_DIRECTION_LABELS[item]}</option>
-        ))}
-      </select>
-    </label>
-  );
-}
-
 function loadDraft(defaultKeys: SavedAnimationKeys): SpriteAnimatorDraft {
   const fallback = buildDefaultDraft(defaultKeys);
   const storedDraft = readStoredDraft();
@@ -1010,14 +3847,41 @@ function loadDraft(defaultKeys: SavedAnimationKeys): SpriteAnimatorDraft {
     return fallback;
   }
   try {
+    const parsed = JSON.parse(storedDraft.raw) as Partial<SpriteAnimatorDraft>;
     const draft = {
       ...fallback,
-      ...JSON.parse(storedDraft.raw)
+      ...parsed
     };
-    return normalizeDraft(draft, fallback, storedDraft.isLegacy);
+    return normalizeDraft(draft, fallback, storedDraft.isLegacy, parsed);
   } catch {
     return fallback;
   }
+}
+
+function normalizeBackendWorkflowConfig(
+  config: Record<string, unknown>,
+  defaultKeys: SavedAnimationKeys,
+  openRouterApiKey: string
+): SpriteAnimatorDraft {
+  const fallback = buildDefaultDraft(defaultKeys);
+  const parsed = {
+    ...config,
+    exportFrameSizeDefaultVersion: EXPORT_FRAME_SIZE_DEFAULT_VERSION,
+    directionPromptDefaultVersion: DIRECTION_PROMPT_DEFAULT_VERSION
+  } as Partial<SpriteAnimatorDraft>;
+  return normalizeDraft({
+    ...fallback,
+    ...parsed,
+    openRouterApiKey
+  }, fallback, false, parsed);
+}
+
+function toBackendWorkflowDraft(draft: SpriteAnimatorDraft): BackendWorkflowDraft {
+  const { openRouterApiKey: _openRouterApiKey, ...backendDraft } = draft;
+  return {
+    ...backendDraft,
+    characterPreviewSettings: loadCharacterPreviewSettings()
+  };
 }
 
 function readStoredDraft(): { raw: string; isLegacy: boolean } | null {
@@ -1025,14 +3889,20 @@ function readStoredDraft(): { raw: string; isLegacy: boolean } | null {
   if (current) {
     return { raw: current, isLegacy: false };
   }
-  const legacy = localStorage.getItem(LEGACY_DRAFT_STORAGE_KEY);
-  return legacy ? { raw: legacy, isLegacy: true } : null;
+  for (const key of LEGACY_DRAFT_STORAGE_KEYS) {
+    const legacy = localStorage.getItem(key);
+    if (legacy) {
+      return { raw: legacy, isLegacy: true };
+    }
+  }
+  return null;
 }
 
 function normalizeDraft(
   draft: SpriteAnimatorDraft,
   fallback: SpriteAnimatorDraft,
-  isLegacy: boolean
+  isLegacy: boolean,
+  storedDraft?: Partial<SpriteAnimatorDraft>
 ): SpriteAnimatorDraft {
   const next = { ...draft };
   if (isLegacy && next.imageModel === LEGACY_SEEDREAM_IMAGE_MODEL) {
@@ -1041,6 +3911,125 @@ function normalizeDraft(
   if (!isKnownImageModel(next.imageModel)) {
     next.imageModel = fallback.imageModel;
   }
+  if (!isKnownImageModel(next.directionImageModel)) {
+    next.directionImageModel = fallback.directionImageModel;
+  }
+  if (!isKnownVideoModel(next.videoModel)) {
+    next.videoModel = fallback.videoModel;
+  }
+  next.imageGenerationSize = normalizeImageGenerationSize(next.imageModel, next.imageGenerationSize);
+  next.directionImageGenerationSize = normalizeImageGenerationSize(
+    next.directionImageModel,
+    next.directionImageGenerationSize
+  );
+  next.videoDurationSeconds = normalizeVideoDuration(next.videoModel, Number(next.videoDurationSeconds));
+  next.videoResolution = normalizeVideoResolution(next.videoModel, String(next.videoResolution ?? ""));
+  next.frameCount = clamp(Number(next.frameCount), 1, 120);
+  next.fps = clamp(Number(next.fps), 1, FPS_MAX);
+  next.tolerance = clamp(Number(next.tolerance), 0, 255);
+  next.minLoopFrames = clamp(Number(next.minLoopFrames), 2, 120);
+  next.maxLoopFrames = Math.max(next.minLoopFrames, clamp(Number(next.maxLoopFrames), 2, 120));
+  if (
+    Number(storedDraft?.exportFrameSizeDefaultVersion ?? 0) < EXPORT_FRAME_SIZE_DEFAULT_VERSION
+    && Number(storedDraft?.exportFrameSize) === 256
+  ) {
+    next.exportFrameSize = DEFAULT_EXPORT_FRAME_SIZE;
+  }
+  next.exportFrameSize = clamp(Number(next.exportFrameSize), 64, 1024);
+  next.exportFrameSizeDefaultVersion = EXPORT_FRAME_SIZE_DEFAULT_VERSION;
+  if (!isKnownImageStyle(next.imageStyle)) {
+    next.imageStyle = fallback.imageStyle;
+  }
+  if (isLegacy || !next.imageSystemPrompt) {
+    next.imageSystemPrompt = fallback.imageSystemPrompt;
+  }
+  if (isLegacy || typeof next.imageCustomPrompt !== "string") {
+    next.imageCustomPrompt = fallback.imageCustomPrompt;
+  }
+  if (isLegacy || !next.directionIdleSystemPrompt) {
+    next.directionIdleSystemPrompt = fallback.directionIdleSystemPrompt;
+  }
+  if (isLegacy || typeof next.directionIdleCustomPrompt !== "string") {
+    next.directionIdleCustomPrompt = fallback.directionIdleCustomPrompt;
+  }
+  if (isLegacy || !next.directionWalkSystemPrompt) {
+    next.directionWalkSystemPrompt = fallback.directionWalkSystemPrompt;
+  }
+  if (isLegacy || typeof next.directionWalkCustomPrompt !== "string") {
+    next.directionWalkCustomPrompt = fallback.directionWalkCustomPrompt;
+  }
+  if (isLegacy || typeof next.videoSystemPrompt !== "string" || next.videoSystemPrompt.trim().length === 0) {
+    next.videoSystemPrompt = fallback.videoSystemPrompt;
+  }
+  if (isLegacy || typeof next.videoCustomPrompt !== "string") {
+    next.videoCustomPrompt = fallback.videoCustomPrompt;
+  }
+  if (isLegacy || typeof next.advancedRunSystemPrompt !== "string" || next.advancedRunSystemPrompt.trim().length === 0) {
+    next.advancedRunSystemPrompt = fallback.advancedRunSystemPrompt;
+  }
+  if (isLegacy || typeof next.advancedRunCustomPrompt !== "string") {
+    next.advancedRunCustomPrompt = fallback.advancedRunCustomPrompt;
+  }
+  if (isLegacy || typeof next.advancedRunVideoSystemPrompt !== "string" || next.advancedRunVideoSystemPrompt.trim().length === 0) {
+    next.advancedRunVideoSystemPrompt = fallback.advancedRunVideoSystemPrompt;
+  }
+  if (isLegacy || typeof next.advancedRunVideoCustomPrompt !== "string") {
+    next.advancedRunVideoCustomPrompt = fallback.advancedRunVideoCustomPrompt;
+  }
+  if (isLegacy || typeof next.advancedAttackSystemPrompt !== "string" || next.advancedAttackSystemPrompt.trim().length === 0) {
+    next.advancedAttackSystemPrompt = fallback.advancedAttackSystemPrompt;
+  }
+  if (isLegacy || typeof next.advancedAttackCustomPrompt !== "string") {
+    next.advancedAttackCustomPrompt = fallback.advancedAttackCustomPrompt;
+  }
+  if (typeof next.advancedAttackMidframeCustomPrompt !== "string") {
+    next.advancedAttackMidframeCustomPrompt = fallback.advancedAttackMidframeCustomPrompt;
+  }
+  next.advancedAttackStartScale = normalizeAdvancedStartScale(next.advancedAttackStartScale, fallback.advancedAttackStartScale);
+  if (isLegacy || typeof next.advancedJumpSystemPrompt !== "string" || next.advancedJumpSystemPrompt.trim().length === 0) {
+    next.advancedJumpSystemPrompt = fallback.advancedJumpSystemPrompt;
+  }
+  if (isLegacy || typeof next.advancedJumpCustomPrompt !== "string") {
+    next.advancedJumpCustomPrompt = fallback.advancedJumpCustomPrompt;
+  }
+  next.advancedJumpStartScale = normalizeAdvancedStartScale(next.advancedJumpStartScale, fallback.advancedJumpStartScale);
+  if (Number(storedDraft?.directionPromptDefaultVersion ?? 0) < DIRECTION_PROMPT_DEFAULT_VERSION) {
+    next.directionIdleSystemPrompt = fallback.directionIdleSystemPrompt;
+    next.directionWalkSystemPrompt = fallback.directionWalkSystemPrompt;
+  }
+  next.directionPromptDefaultVersion = DIRECTION_PROMPT_DEFAULT_VERSION;
+  next.finalImagePrompt = buildFirstFramePrompt({
+    imageSystemPrompt: next.imageSystemPrompt,
+    imageCustomPrompt: next.imageCustomPrompt
+  });
+  next.finalDirectionIdlePrompt = buildFirstFramePrompt({
+    imageSystemPrompt: next.directionIdleSystemPrompt,
+    imageCustomPrompt: next.directionIdleCustomPrompt
+  });
+  next.finalDirectionWalkPrompt = buildFirstFramePrompt({
+    imageSystemPrompt: next.directionWalkSystemPrompt,
+    imageCustomPrompt: next.directionWalkCustomPrompt
+  });
+  next.finalVideoPrompt = buildVideoPrompt({
+    videoSystemPrompt: next.videoSystemPrompt,
+    videoCustomPrompt: next.videoCustomPrompt
+  });
+  next.finalAdvancedRunPrompt = buildFirstFramePrompt({
+    imageSystemPrompt: next.advancedRunSystemPrompt,
+    imageCustomPrompt: next.advancedRunCustomPrompt
+  });
+  next.finalAdvancedRunVideoPrompt = buildVideoPrompt({
+    videoSystemPrompt: next.advancedRunVideoSystemPrompt,
+    videoCustomPrompt: next.advancedRunVideoCustomPrompt
+  });
+  next.finalAdvancedAttackPrompt = buildVideoPrompt({
+    videoSystemPrompt: next.advancedAttackSystemPrompt,
+    videoCustomPrompt: next.advancedAttackCustomPrompt
+  });
+  next.finalAdvancedJumpPrompt = buildVideoPrompt({
+    videoSystemPrompt: next.advancedJumpSystemPrompt,
+    videoCustomPrompt: next.advancedJumpCustomPrompt
+  });
   return next;
 }
 
@@ -1048,75 +4037,443 @@ function isKnownImageModel(model: string): boolean {
   return IMAGE_MODELS.some((item) => item.id === model);
 }
 
+function isKnownImageStyle(style: string): boolean {
+  return IMAGE_STYLES.some((item) => item.id === style);
+}
+
+function isKnownVideoModel(model: string): boolean {
+  return VIDEO_MODELS.some((item) => item.id === model);
+}
+
+function getImageGenerationSizeOptions(model: string): readonly ImageGenerationSizeOption[] {
+  return (IMAGE_MODELS.find((item) => item.id === model) ?? IMAGE_MODELS[0]).sizeOptions;
+}
+
+function getDefaultImageGenerationSize(model: string): number {
+  return getImageGenerationSizeOptions(model)[0]?.size ?? 1024;
+}
+
+function normalizeImageGenerationSize(model: string, size: number): number {
+  const options = getImageGenerationSizeOptions(model);
+  return options.some((option) => option.size === size)
+    ? size
+    : getDefaultImageGenerationSize(model);
+}
+
+function getVideoModelOption(model: string): VideoModelOption {
+  const option = VIDEO_MODELS.find((item) => item.id === model)
+    ?? VIDEO_MODELS.find((item) => item.id === DEFAULT_VIDEO_MODEL)
+    ?? VIDEO_MODELS[0];
+  if (!option) {
+    throw new Error("至少需要配置一个视频模型");
+  }
+  return option;
+}
+
+function getVideoDurationOptions(model: string): readonly number[] {
+  return getVideoModelOption(model).durationOptions;
+}
+
+function getDefaultVideoDuration(model: string): number {
+  return getVideoModelOption(model).defaultDurationSeconds;
+}
+
+function normalizeVideoDuration(model: string, duration: number): number {
+  const options = getVideoDurationOptions(model);
+  return options.includes(duration) ? duration : getDefaultVideoDuration(model);
+}
+
+function getVideoResolutionOptions(model: string): readonly string[] {
+  return getVideoModelOption(model).resolutionOptions;
+}
+
+function getDefaultVideoResolution(model: string): string {
+  return getVideoModelOption(model).defaultResolution;
+}
+
+function normalizeVideoResolution(model: string, resolution: string): string {
+  const options = getVideoResolutionOptions(model);
+  return options.includes(resolution) ? resolution : getDefaultVideoResolution(model);
+}
+
+function buildCharacterPreviewAssets(result: ProcessFourDirectionResult | null, advancedActions?: {
+  run?: ProcessFourDirectionResult | null;
+  attack1?: ProcessFourDirectionResult | null;
+  jump?: ProcessFourDirectionResult | null;
+}): {
+  idle: Record<PreviewDirection, ProcessedFrame | undefined>;
+  walk: Record<PreviewDirection, ProcessedFrame[]>;
+  run: Record<PreviewDirection, ProcessedFrame[]>;
+  attack1: Record<PreviewDirection, ProcessedFrame[]>;
+  jump: Record<PreviewDirection, ProcessedFrame[]>;
+  idleCount: number;
+  walkDirectionCount: number;
+  walkFrameCount: number;
+  runDirectionCount: number;
+  runFrameCount: number;
+  attackDirectionCount: number;
+  attackFrameCount: number;
+  jumpDirectionCount: number;
+  jumpFrameCount: number;
+  hasRequiredAssets: boolean;
+  missingMessages: string[];
+} {
+  const idle: Record<PreviewDirection, ProcessedFrame | undefined> = {
+    down: undefined,
+    up: undefined,
+    left: undefined,
+    right: undefined
+  };
+  const walk: Record<PreviewDirection, ProcessedFrame[]> = {
+    down: [],
+    up: [],
+    left: [],
+    right: []
+  };
+  const run = buildEmptyDirectionFrameMap();
+  const attack1 = buildEmptyDirectionFrameMap();
+  const jump = buildEmptyDirectionFrameMap();
+  for (const frame of result?.idle?.frames ?? []) {
+    idle[frame.key] = frame;
+  }
+  for (const direction of result?.directions ?? []) {
+    walk[direction.key] = direction.transparentFrames;
+  }
+  fillDirectionFrames(run, advancedActions?.run ?? null);
+  fillDirectionFrames(attack1, advancedActions?.attack1 ?? null);
+  fillDirectionFrames(jump, advancedActions?.jump ?? null);
+
+  const missingIdle = PREVIEW_DIRECTION_ORDER.filter((direction) => !idle[direction]);
+  const missingWalk = PREVIEW_DIRECTION_ORDER.filter((direction) => walk[direction].length === 0);
+  const missingMessages = [
+    missingIdle.length > 0 ? `缺少待机方向：${missingIdle.map((direction) => PREVIEW_DIRECTION_LABELS[direction]).join("、")}` : "",
+    missingWalk.length > 0 ? `缺少行走方向：${missingWalk.map((direction) => PREVIEW_DIRECTION_LABELS[direction]).join("、")}` : ""
+  ].filter(Boolean);
+  const idleCount = PREVIEW_DIRECTION_ORDER.filter((direction) => idle[direction]).length;
+  const walkDirectionCount = PREVIEW_DIRECTION_ORDER.filter((direction) => walk[direction].length > 0).length;
+  const walkFrameCount = PREVIEW_DIRECTION_ORDER.reduce((total, direction) => total + walk[direction].length, 0);
+  const runDirectionCount = PREVIEW_DIRECTION_ORDER.filter((direction) => run[direction].length > 0).length;
+  const runFrameCount = PREVIEW_DIRECTION_ORDER.reduce((total, direction) => total + run[direction].length, 0);
+  const attackDirectionCount = PREVIEW_DIRECTION_ORDER.filter((direction) => attack1[direction].length > 0).length;
+  const attackFrameCount = PREVIEW_DIRECTION_ORDER.reduce((total, direction) => total + attack1[direction].length, 0);
+  const jumpDirectionCount = PREVIEW_DIRECTION_ORDER.filter((direction) => jump[direction].length > 0).length;
+  const jumpFrameCount = PREVIEW_DIRECTION_ORDER.reduce((total, direction) => total + jump[direction].length, 0);
+
+  return {
+    idle,
+    walk,
+    run,
+    attack1,
+    jump,
+    idleCount,
+    walkDirectionCount,
+    walkFrameCount,
+    runDirectionCount,
+    runFrameCount,
+    attackDirectionCount,
+    attackFrameCount,
+    jumpDirectionCount,
+    jumpFrameCount,
+    hasRequiredAssets: idleCount === PREVIEW_DIRECTION_ORDER.length && walkDirectionCount === PREVIEW_DIRECTION_ORDER.length,
+    missingMessages
+  };
+}
+
+function buildEmptyDirectionFrameMap(): Record<PreviewDirection, ProcessedFrame[]> {
+  return {
+    down: [],
+    up: [],
+    left: [],
+    right: []
+  };
+}
+
+function fillDirectionFrames(target: Record<PreviewDirection, ProcessedFrame[]>, result: ProcessFourDirectionResult | null): void {
+  for (const direction of result?.directions ?? []) {
+    target[direction.key] = direction.transparentFrames;
+  }
+}
+
+function loadCharacterPreviewSettings(): CharacterPreviewSettings {
+  try {
+    const raw = localStorage.getItem(CHARACTER_PREVIEW_SETTINGS_STORAGE_KEY);
+    if (!raw) {
+      return DEFAULT_CHARACTER_PREVIEW_SETTINGS;
+    }
+    return normalizeCharacterPreviewSettings(JSON.parse(raw), DEFAULT_CHARACTER_PREVIEW_SETTINGS);
+  } catch {
+    return DEFAULT_CHARACTER_PREVIEW_SETTINGS;
+  }
+}
+
+function saveCharacterPreviewSettings(settings: CharacterPreviewSettings): void {
+  localStorage.setItem(CHARACTER_PREVIEW_SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+}
+
+function normalizeCharacterPreviewSettings(value: unknown, fallback: CharacterPreviewSettings): CharacterPreviewSettings {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return fallback;
+  }
+  const parsed = value as Partial<CharacterPreviewSettings> & { previewFps?: number };
+  const legacyFps = Number(parsed.previewFps);
+  const fallbackFps = Number.isFinite(legacyFps) ? clamp(legacyFps, 1, FPS_MAX) : fallback.walkFps;
+  return {
+    idleFps: clamp(Number(parsed.idleFps ?? fallback.idleFps), 1, FPS_MAX),
+    walkFps: clamp(Number(parsed.walkFps ?? fallbackFps), 1, FPS_MAX),
+    runFps: clamp(Number(parsed.runFps ?? fallbackFps), 1, FPS_MAX),
+    attackFps: clamp(Number(parsed.attackFps ?? fallbackFps), 1, FPS_MAX),
+    jumpFps: clamp(Number(parsed.jumpFps ?? fallbackFps), 1, FPS_MAX),
+    previewSize: clamp(Number(parsed.previewSize ?? fallback.previewSize), 160, 640),
+    moveSpeed: clamp(Number(parsed.moveSpeed ?? fallback.moveSpeed), 0, 360),
+    backgroundMode: normalizeCharacterPreviewBackground(parsed.backgroundMode ?? fallback.backgroundMode),
+    showGuides: typeof parsed.showGuides === "boolean" ? parsed.showGuides : fallback.showGuides,
+    showCellBounds: typeof parsed.showCellBounds === "boolean" ? parsed.showCellBounds : fallback.showCellBounds
+  };
+}
+
+function getPlaybackIntervalMs(fps: number): number {
+  return Math.max(1, Math.round(1000 / Math.max(1, fps)));
+}
+
+function normalizeCharacterPreviewBackground(value: unknown): CharacterPreviewBackgroundMode {
+  if (value === "map-2") {
+    return "map-2";
+  }
+  return value === "grid" ? "grid" : "map-1";
+}
+
+function isTextEntryTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+  return target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName);
+}
+
+function clampPreviewPosition(position: { x: number; y: number }): { x: number; y: number } {
+  return {
+    x: Math.max(-220, Math.min(220, position.x)),
+    y: Math.max(-170, Math.min(170, position.y))
+  };
+}
+
+function getFinalLoopFrameCount(result: ProcessFourDirectionResult | null): number {
+  if (!result) {
+    return 0;
+  }
+  return Math.max(...result.directions.map((direction) => direction.transparentFrames.length), 0);
+}
+
+function normalizeFourDirectionResult(result: ProcessFourDirectionResult): ProcessFourDirectionResult {
+  const version = Date.now().toString(36);
+  return {
+    ...result,
+    rawFrames: result.rawFrames.map((frame) => normalizeProcessedFrame(frame, version)),
+    directions: result.directions.map((direction) => ({
+      ...direction,
+      centeredFrames: direction.centeredFrames.map((frame) => normalizeProcessedFrame(frame, version)),
+      loopFrames: direction.loopFrames.map((frame) => normalizeProcessedFrame(frame, version)),
+      transparentFrames: direction.transparentFrames.map((frame) => normalizeProcessedFrame(frame, version))
+    })),
+    spriteSheetUrl: result.spriteSheetUrl ? appendCacheBust(toAbsoluteApiUrl(result.spriteSheetUrl), `${version}-sheet`) : undefined,
+    transparentZipUrl: result.transparentZipUrl ? toAbsoluteApiUrl(result.transparentZipUrl) : undefined,
+    gifPreviewUrl: result.gifPreviewUrl ? appendCacheBust(toAbsoluteApiUrl(result.gifPreviewUrl), `${version}-gif`) : undefined,
+    idle: result.idle ? {
+      frames: result.idle.frames.map((frame) => ({
+        ...frame,
+        url: appendCacheBust(toAbsoluteApiUrl(frame.url), `${version}-idle-${frame.key}`)
+      })),
+      spriteSheetUrl: result.idle.spriteSheetUrl ? appendCacheBust(toAbsoluteApiUrl(result.idle.spriteSheetUrl), `${version}-idle-sheet`) : undefined
+    } : undefined
+  };
+}
+
+function buildInitialAdvancedActionState(status: string): AdvancedActionState {
+  return {
+    keyframePreview: null,
+    inputPreview: null,
+    outputPreview: null,
+    middleFramePreview: null,
+    jobId: "",
+    result: null,
+    status,
+    statusDetails: "",
+    isGeneratingKeyframe: false,
+    isGeneratingMidframe: false,
+    isPreparingInput: false,
+    isSubmittingVideo: false,
+    isProcessing: false
+  };
+}
+
+function advancedAssetToState(asset: AdvancedActionAssets | undefined, fallbackStatus: string): AdvancedActionState {
+  if (!asset) {
+    return buildInitialAdvancedActionState(fallbackStatus);
+  }
+  const version = Date.now().toString(36);
+  return {
+    ...buildInitialAdvancedActionState("已自动载入该角色已有进阶动作资源。"),
+    keyframePreview: toMediaPreview(asset.keyframe, version),
+    inputPreview: toMediaPreview(asset.videoInput ?? asset.keyframe, version),
+    outputPreview: toMediaPreview(asset.videoSource, version),
+    middleFramePreview: toMediaPreview(asset.middleFrame, version),
+    jobId: asset.videoSource ? (asset.export?.jobId ?? "existing-video") : "",
+    result: asset.export ? normalizeFourDirectionResult(asset.export) : null
+  };
+}
+
+function normalizeProcessedFrame(frame: ProcessedFrame, version: string): ProcessedFrame {
+  return {
+    index: frame.index,
+    url: appendCacheBust(toAbsoluteApiUrl(frame.url), `${version}-${frame.index}`)
+  };
+}
+
+function getAdvancedActionLabel(actionKind: AdvancedActionKind): string {
+  if (actionKind === "run") {
+    return "跑步四方向";
+  }
+  if (actionKind === "attack-1") {
+    return "攻击动作1";
+  }
+  return "跳跃动作";
+}
+
+function formatOneClickJobStatus(job: OneClickCharacterJob): string {
+  if (job.status === "completed") {
+    const hasFailedOptional = job.steps.some((step) => step.status === "failed");
+    return hasFailedOptional ? "基础角色已生成，部分进阶动作失败。" : "一键生成角色完成。";
+  }
+  if (job.status === "failed") {
+    return job.error ? `一键生成角色失败：${job.error}` : "一键生成角色失败。";
+  }
+  const current = job.steps.find((step) => step.id === job.currentStep);
+  return current ? `正在处理：${current.label}` : "一键生成角色任务运行中。";
+}
+
+function formatOneClickStepStatus(status: string): string {
+  if (status === "completed") {
+    return "完成";
+  }
+  if (status === "running") {
+    return "处理中";
+  }
+  if (status === "failed") {
+    return "失败";
+  }
+  if (status === "skipped") {
+    return "跳过";
+  }
+  return "等待";
+}
+
 function buildDefaultDraft(defaultKeys: SavedAnimationKeys): SpriteAnimatorDraft {
   const base: SpriteAnimatorDraft = {
     openRouterApiKey: "",
     imageModel: DEFAULT_IMAGE_MODEL,
-    videoModel: "bytedance/seedance-2.0",
+    videoModel: DEFAULT_VIDEO_MODEL,
     keyColor: "#00ff00",
-    direction: "front",
-    videoDirection: "front",
-    imageGenerationSize: defaultKeys.targetSize,
-    imagePrompt: DEFAULT_IMAGE_PROMPT,
-    imagePromptInstructions: DEFAULT_IMAGE_PROMPT_INSTRUCTIONS,
+    videoDurationSeconds: getDefaultVideoDuration(DEFAULT_VIDEO_MODEL),
+    videoResolution: getDefaultVideoResolution(DEFAULT_VIDEO_MODEL),
+    imageGenerationSize: getDefaultImageGenerationSize(DEFAULT_IMAGE_MODEL),
+    imageStyle: DEFAULT_IMAGE_STYLE,
+    imageSystemPrompt: DEFAULT_IMAGE_SYSTEM_PROMPT,
+    imageCustomPrompt: DEFAULT_IMAGE_CUSTOM_PROMPT,
     finalImagePrompt: "",
-    finalImagePromptTouched: false,
-    actionTemplate: "run",
-    actionPrompt: ACTION_TEMPLATES.run,
+    directionImageModel: DEFAULT_IMAGE_MODEL,
+    directionImageGenerationSize: getDefaultImageGenerationSize(DEFAULT_IMAGE_MODEL),
+    directionIdleSystemPrompt: DEFAULT_DIRECTION_IDLE_SYSTEM_PROMPT,
+    directionIdleCustomPrompt: DEFAULT_DIRECTION_CUSTOM_PROMPT,
+    finalDirectionIdlePrompt: "",
+    directionWalkSystemPrompt: DEFAULT_DIRECTION_WALK_SYSTEM_PROMPT,
+    directionWalkCustomPrompt: DEFAULT_DIRECTION_CUSTOM_PROMPT,
+    finalDirectionWalkPrompt: "",
+    videoSystemPrompt: DEFAULT_VIDEO_SYSTEM_PROMPT,
+    videoCustomPrompt: DEFAULT_VIDEO_CUSTOM_PROMPT,
     finalVideoPrompt: "",
-    finalVideoPromptTouched: false,
-    frameCount: 12,
-    fps: defaultKeys.fps,
-    tolerance: 8
+    advancedRunSystemPrompt: DEFAULT_ADVANCED_RUN_SYSTEM_PROMPT,
+    advancedRunCustomPrompt: DEFAULT_ADVANCED_RUN_CUSTOM_PROMPT,
+    finalAdvancedRunPrompt: "",
+    advancedRunVideoSystemPrompt: DEFAULT_ADVANCED_RUN_VIDEO_SYSTEM_PROMPT,
+    advancedRunVideoCustomPrompt: DEFAULT_ADVANCED_RUN_VIDEO_CUSTOM_PROMPT,
+    finalAdvancedRunVideoPrompt: "",
+    advancedAttackSystemPrompt: DEFAULT_ADVANCED_ATTACK_SYSTEM_PROMPT,
+    advancedAttackCustomPrompt: DEFAULT_ADVANCED_ATTACK_CUSTOM_PROMPT,
+    finalAdvancedAttackPrompt: "",
+    advancedAttackMidframeCustomPrompt: DEFAULT_ADVANCED_ATTACK_MIDFRAME_CUSTOM_PROMPT,
+    advancedAttackStartScale: DEFAULT_ATTACK_START_SCALE,
+    advancedJumpSystemPrompt: DEFAULT_ADVANCED_JUMP_SYSTEM_PROMPT,
+    advancedJumpCustomPrompt: DEFAULT_ADVANCED_JUMP_CUSTOM_PROMPT,
+    finalAdvancedJumpPrompt: "",
+    advancedJumpStartScale: DEFAULT_JUMP_START_SCALE,
+    frameCount: 120,
+    fps: 30,
+    tolerance: 8,
+    minLoopFrames: 12,
+    maxLoopFrames: 60,
+    exportFrameSize: DEFAULT_EXPORT_FRAME_SIZE,
+    exportFrameSizeDefaultVersion: EXPORT_FRAME_SIZE_DEFAULT_VERSION,
+    directionPromptDefaultVersion: DIRECTION_PROMPT_DEFAULT_VERSION
   };
   return {
     ...base,
     finalImagePrompt: buildFirstFramePrompt({
-      imagePrompt: base.imagePrompt,
-      imagePromptInstructions: base.imagePromptInstructions,
-      imageGenerationSize: base.imageGenerationSize,
-      direction: base.direction,
-      keyColor: base.keyColor
+      imageSystemPrompt: base.imageSystemPrompt,
+      imageCustomPrompt: base.imageCustomPrompt
+    }),
+    finalDirectionIdlePrompt: buildFirstFramePrompt({
+      imageSystemPrompt: base.directionIdleSystemPrompt,
+      imageCustomPrompt: base.directionIdleCustomPrompt
+    }),
+    finalDirectionWalkPrompt: buildFirstFramePrompt({
+      imageSystemPrompt: base.directionWalkSystemPrompt,
+      imageCustomPrompt: base.directionWalkCustomPrompt
     }),
     finalVideoPrompt: buildVideoPrompt({
-      direction: base.videoDirection,
-      actionPrompt: base.actionPrompt,
-      keyColor: base.keyColor
+      videoSystemPrompt: base.videoSystemPrompt,
+      videoCustomPrompt: base.videoCustomPrompt
+    }),
+    finalAdvancedRunPrompt: buildFirstFramePrompt({
+      imageSystemPrompt: base.advancedRunSystemPrompt,
+      imageCustomPrompt: base.advancedRunCustomPrompt
+    }),
+    finalAdvancedRunVideoPrompt: buildVideoPrompt({
+      videoSystemPrompt: base.advancedRunVideoSystemPrompt,
+      videoCustomPrompt: base.advancedRunVideoCustomPrompt
+    }),
+    finalAdvancedAttackPrompt: buildVideoPrompt({
+      videoSystemPrompt: base.advancedAttackSystemPrompt,
+      videoCustomPrompt: base.advancedAttackCustomPrompt
+    }),
+    finalAdvancedJumpPrompt: buildVideoPrompt({
+      videoSystemPrompt: base.advancedJumpSystemPrompt,
+      videoCustomPrompt: base.advancedJumpCustomPrompt
     })
   };
 }
 
 function buildFirstFramePrompt(input: {
-  imagePrompt: string;
-  imagePromptInstructions: string;
-  imageGenerationSize: number;
-  direction: CharacterDirection;
-  keyColor: string;
+  imageSystemPrompt: string;
+  imageCustomPrompt: string;
 }): string {
   return [
-    input.imagePromptInstructions,
-    `角色：${input.imagePrompt}`,
-    `画布：${input.imageGenerationSize}x${input.imageGenerationSize}`,
-    `朝向：${CHARACTER_DIRECTION_LABELS[input.direction]}`,
-    `纯色 ${input.keyColor} 背景`
-  ].filter(Boolean).join(" ");
+    input.imageSystemPrompt,
+    input.imageCustomPrompt
+  ].filter((part) => part.trim().length > 0).join("\n\n");
 }
 
 function buildVideoPrompt(input: {
-  direction: CharacterDirection;
-  actionPrompt: string;
-  keyColor: string;
+  videoSystemPrompt: string;
+  videoCustomPrompt: string;
 }): string {
   return [
-    "单个2D游戏角色",
-    "全身居中",
-    "镜头固定",
-    `视角：${CHARACTER_DIRECTION_LABELS[input.direction]}`,
-    input.actionPrompt,
-    `纯色 ${input.keyColor} 背景`,
-    "无阴影、无地面、无粒子、无文字",
-    "循环精灵动画风格"
-  ].filter((part) => part.trim().length > 0).join("，");
+    input.videoSystemPrompt,
+    input.videoCustomPrompt
+  ].filter((part) => part.trim().length > 0).join("\n\n");
+}
+
+function normalizeAdvancedStartScale(value: unknown, fallback: number): number {
+  const numeric = typeof value === "number" && Number.isFinite(value) ? value : fallback;
+  return Math.max(0.45, Math.min(0.95, Number(numeric.toFixed(2))));
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -1135,12 +4492,57 @@ function readFileAsDataUrl(file: File): Promise<string> {
   });
 }
 
+async function readImageUrlAsDataUrl(url: string): Promise<string> {
+  if (url.startsWith("data:")) {
+    return url;
+  }
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`读取角色基准模板失败：${response.status}`);
+  }
+  const blob = await response.blob();
+  return readFileAsDataUrl(new File([blob], "character-template.png", { type: blob.type || "image/png" }));
+}
+
+async function readOptionalPreviewImageAsDataUrl(file: File | null, preview: MediaPreview | null): Promise<string | undefined> {
+  if (file) {
+    return readFileAsDataUrl(file);
+  }
+  if (preview?.url) {
+    return readImageUrlAsDataUrl(preview.url);
+  }
+  return undefined;
+}
+
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
 function extractJobId(response: unknown): string | undefined {
   return findStringValue(response, ["id", "job_id", "jobId"]);
+}
+
+function extractVideoFailureReason(response: unknown): string | undefined {
+  return findStringValue(response, [
+    "message",
+    "error",
+    "detail",
+    "reason",
+    "failure_reason",
+    "failed_reason",
+    "status_message"
+  ]);
+}
+
+function formatVideoStatusDetails(response: unknown, fallbackJobId: string): string {
+  const details = {
+    jobId: findStringValue(response, ["jobId", "job_id", "id"]) ?? fallbackJobId,
+    status: findStringValue(response, ["status", "state"]),
+    providerResponse: response && typeof response === "object" && "providerResponse" in response
+      ? (response as { providerResponse?: unknown }).providerResponse
+      : response
+  };
+  return JSON.stringify(details, null, 2);
 }
 
 function extractImageUrl(response: unknown): string | undefined {
@@ -1207,4 +4609,27 @@ function isPublicHttpsUrl(value: string): boolean {
 
 function appendCacheBust(url: string, version: string): string {
   return `${url}${url.includes("?") ? "&" : "?"}v=${encodeURIComponent(version)}`;
+}
+
+function buildReferenceImageUrl(path: string, version: string, kind: Module01ReferenceImageKind): string {
+  const absoluteUrl = toAbsoluteApiUrl(path);
+  return version ? appendCacheBust(absoluteUrl, `${version}-${kind}`) : absoluteUrl;
+}
+
+function toMediaPreview(asset: CharacterAssetFile | undefined, version: string): MediaPreview | null {
+  if (!asset) {
+    return null;
+  }
+  return {
+    name: asset.fileName,
+    url: appendCacheBust(toAbsoluteApiUrl(asset.url), `${version}-${asset.fileName}`),
+    publicUrl: toPublicAssetUrl(asset.url)
+  };
+}
+
+function toPublicAssetUrl(localUrl: string): string {
+  if (/^https?:\/\//i.test(localUrl)) {
+    return localUrl;
+  }
+  return `${FIXED_PUBLIC_ASSET_BASE_URL}${localUrl.startsWith("/") ? "" : "/"}${localUrl}`;
 }
