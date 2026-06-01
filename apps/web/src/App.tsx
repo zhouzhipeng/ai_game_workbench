@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { DEFAULT_KEYS } from "@ai-game-workbench/core";
+import { PixelSpriteGenerator } from "./components/PixelSpriteGenerator";
 import { WorkbenchHub } from "./components/WorkbenchHub";
 import { SpriteAnimator } from "./components/SpriteAnimator";
 
-type ModuleId = "hub" | "sprite-animator";
+type ModuleId = "hub" | "sprite-animator" | "pixel-sprite-generator";
 
 export function App() {
   const [moduleId, setModuleId] = useState<ModuleId>("hub");
@@ -17,5 +18,14 @@ export function App() {
     );
   }
 
-  return <WorkbenchHub onOpenSpriteAnimator={() => setModuleId("sprite-animator")} />;
+  if (moduleId === "pixel-sprite-generator") {
+    return <PixelSpriteGenerator onBack={() => setModuleId("hub")} />;
+  }
+
+  return (
+    <WorkbenchHub
+      onOpenPixelSpriteGenerator={() => setModuleId("pixel-sprite-generator")}
+      onOpenSpriteAnimator={() => setModuleId("sprite-animator")}
+    />
+  );
 }

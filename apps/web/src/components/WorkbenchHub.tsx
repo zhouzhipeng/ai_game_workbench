@@ -1,17 +1,17 @@
 import { Boxes, Film, ImagePlus, Layers, Lock, Sparkles } from "lucide-react";
 
 interface WorkbenchHubProps {
+  onOpenPixelSpriteGenerator: () => void;
   onOpenSpriteAnimator: () => void;
 }
 
 const plannedModules = [
-  { title: "角色生成器", icon: ImagePlus },
   { title: "精灵图编辑器", icon: Layers },
   { title: "地图块生成器", icon: Boxes },
   { title: "头像生成器", icon: Sparkles }
 ];
 
-export function WorkbenchHub({ onOpenSpriteAnimator }: WorkbenchHubProps) {
+export function WorkbenchHub({ onOpenPixelSpriteGenerator, onOpenSpriteAnimator }: WorkbenchHubProps) {
   return (
     <main className="app-shell hub-shell">
       <section className="hub-hero">
@@ -29,6 +29,12 @@ export function WorkbenchHub({ onOpenSpriteAnimator }: WorkbenchHubProps) {
           <span className="module-icon"><Film size={28} /></span>
           <span className="module-title">模块 01：2D精美角色动画生成</span>
           <span className="module-desc">生成角色基准模板、基础角色方向图、步行动画和循环精灵帧。</span>
+        </button>
+
+        <button className="module-card module-card-active" type="button" onClick={onOpenPixelSpriteGenerator}>
+          <span className="module-icon"><ImagePlus size={28} /></span>
+          <span className="module-title">模块 02：像素角色生成器</span>
+          <span className="module-desc">生成像素角色基准模板、四方向步行图，并切分 idle / walk 精灵帧。</span>
         </button>
 
         {plannedModules.map((module) => {

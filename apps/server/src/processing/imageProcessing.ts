@@ -5,6 +5,27 @@ export interface SpriteSheetOptions {
   frameHeight: number;
 }
 
+export interface SliceSpriteSheetOptions {
+  rows: number;
+  columns: number;
+  keyColor: string;
+  tolerance: number;
+  centerFrames?: boolean;
+  centerMode?: "frame" | "row";
+  outputFrameWidth?: number;
+  outputFrameHeight?: number;
+  normalizeSubjectScale?: boolean;
+  directionLayout?: "grid" | "contact-2x2";
+}
+
+export interface SlicedSpriteFrame {
+  row: number;
+  index: number;
+  width: number;
+  height: number;
+  buffer: Buffer;
+}
+
 export type FourDirectionKey = "down" | "up" | "left" | "right";
 
 export type FourDirectionBuffers = Record<FourDirectionKey, Buffer>;
@@ -522,6 +543,303 @@ export async function buildSpriteSheetFromBuffers(
     .composite(composites)
     .png()
     .toBuffer();
+}
+
+export async function sliceSpriteSheetBuffer(
+  input: Buffer,
+  options: SliceSpriteSheetOptions
+): Promise<SlicedSpriteFrame[]> {
+  const metadata = await sharp(input).metadata();
+  if (!metadata.width || !metadata.height) {
+    throw new Error("Cannot slice sprite sheet without dimensions");
+  }
+  const frameWidth = Math.floor(metadata.width / options.columns);
+  const frameHeight = Math.floor(metadata.height / options.rows);
+  if (frameWidth < 1 || frameHeight < 1) {
+    throw new Error("Sprite sheet grid is larger than the image");
+  }
+
+  let frames: SlicedSpriteFrame[] = [];
+  for (let row = 0; row < options.rows; row += 1) {
+    for (let column = 0; column < options.columns; column += 1) {
+      const cropped = await sharp(input)
+        .extract({
+          left: column * frameWidth,
+          top: row * frameHeight,
+          width: frameWidth,
+          height: frameHeight
+        })
+        .png()
+        .toBuffer();
+      frames.push({
+        row: row + 1,
+        index: column + 1,
+        width: frameWidth,
+        height: frameHeight,
+        buffer: await applySampledBackgroundKeyToBuffer(cropped, { tolerance: options.tolerance })
+      });
+    }
+  }
+
+  if (options.directionLayout === "contact-2x2") {
+    frames = mapContactSheet2x2ToDirectionRows(frames);
+  }
+  if (options.outputFrameWidth && options.outputFrameHeight) {
+    for (const frame of frames) {
+      frame.buffer = await resizeTransparentBufferToSize(frame.buffer, options.outputFrameWidth, options.outputFrameHeight);
+      frame.width = options.outputFrameWidth;
+      frame.height = options.outputFrameHeight;
+    }
+  }
+  if (options.normalizeSubjectScale) {
+    await normalizeTransparentFrameSubjectScale(frames);
+  }
+  if (options.centerFrames) {
+    const centerMode = options.centerMode === "row" ? "row" : "frame";
+    if (centerMode === "row") {
+      for (const row of uniqueFrameRows(frames)) {
+        const rowFrames = frames.filter((frame) => frame.row === row);
+        const centered = await centerTransparentFrameSequenceBuffers(rowFrames.map((frame) => frame.buffer));
+        rowFrames.forEach((frame, index) => {
+          frame.buffer = centered[index] ?? frame.buffer;
+        });
+      }
+    } else {
+      for (const frame of frames) {
+        frame.buffer = await centerTransparentFrameBuffer(frame.buffer);
+      }
+    }
+  }
+  return frames;
+}
+
+export async function alignTransparentFrameToReferenceBuffers(
+  input: Buffer,
+  referenceBuffers: readonly Buffer[]
+): Promise<Buffer> {
+  const image = sharp(input).ensureAlpha();
+  const metadata = await image.metadata();
+  if (!metadata.width || !metadata.height) {
+    throw new Error("Cannot align image without dimensions");
+  }
+  const raw = await image.raw().toBuffer();
+  const inputBox = findAlphaForegroundBox(raw, metadata.width, metadata.height);
+  const referenceBox = await findUnionAlphaForegroundBox(referenceBuffers);
+  if (!inputBox || !referenceBox) {
+    return sharp(input).png().toBuffer();
+  }
+
+  const subjectWidth = getBoxWidth(inputBox);
+  const subjectHeight = getBoxHeight(inputBox);
+  const referenceHeight = getBoxHeight(referenceBox);
+  const scale = Math.min(
+    referenceHeight / subjectHeight,
+    (metadata.width - 2) / subjectWidth,
+    (metadata.height - 2) / subjectHeight
+  );
+  const resizedWidth = Math.max(1, Math.round(subjectWidth * scale));
+  const resizedHeight = Math.max(1, Math.round(subjectHeight * scale));
+  const subject = await sharp(input)
+    .extract({
+      left: inputBox.left,
+      top: inputBox.top,
+      width: subjectWidth,
+      height: subjectHeight
+    })
+    .resize(resizedWidth, resizedHeight, {
+      fit: "fill",
+      kernel: "nearest"
+    })
+    .png()
+    .toBuffer();
+  const referenceCenterX = (referenceBox.left + referenceBox.right) / 2;
+  const referenceCenterY = (referenceBox.top + referenceBox.bottom) / 2;
+  const left = clampInteger(Math.round(referenceCenterX - (resizedWidth / 2)), 0, Math.max(0, metadata.width - resizedWidth));
+  const top = clampInteger(Math.round(referenceCenterY - (resizedHeight / 2)), 0, Math.max(0, metadata.height - resizedHeight));
+
+  return sharp({
+    create: {
+      width: metadata.width,
+      height: metadata.height,
+      channels: 4,
+      background: { r: 0, g: 0, b: 0, alpha: 0 }
+    }
+  })
+    .composite([{ input: subject, left, top }])
+    .png()
+    .toBuffer();
+}
+
+function mapContactSheet2x2ToDirectionRows(frames: readonly SlicedSpriteFrame[]): SlicedSpriteFrame[] {
+  const findFrame = (row: number, index: number) => frames.find((frame) => frame.row === row && frame.index === index);
+  const directionMap = [
+    { sourceRow: 1, sourceIndex: 1, targetRow: 1 },
+    { sourceRow: 1, sourceIndex: 2, targetRow: 2 },
+    { sourceRow: 2, sourceIndex: 1, targetRow: 3 },
+    { sourceRow: 2, sourceIndex: 2, targetRow: 4 }
+  ];
+  return directionMap.flatMap((entry) => {
+    const frame = findFrame(entry.sourceRow, entry.sourceIndex);
+    return frame ? [{ ...frame, row: entry.targetRow, index: 1 }] : [];
+  });
+}
+
+function uniqueFrameRows(frames: readonly SlicedSpriteFrame[]): number[] {
+  return Array.from(new Set(frames.map((frame) => frame.row))).sort((first, second) => first - second);
+}
+
+async function resizeTransparentBufferToSize(input: Buffer, width: number, height: number): Promise<Buffer> {
+  return sharp(input)
+    .resize(width, height, {
+      fit: "contain",
+      kernel: "nearest",
+      background: { r: 0, g: 0, b: 0, alpha: 0 }
+    })
+    .png()
+    .toBuffer();
+}
+
+async function centerTransparentFrameSequenceBuffers(inputs: readonly Buffer[]): Promise<Buffer[]> {
+  if (inputs.length === 0) {
+    return [];
+  }
+
+  const frames = [];
+  let expectedWidth: number | undefined;
+  let expectedHeight: number | undefined;
+  let unionBox: ForegroundBox | null = null;
+
+  for (const input of inputs) {
+    const image = sharp(input).ensureAlpha();
+    const metadata = await image.metadata();
+    if (!metadata.width || !metadata.height) {
+      throw new Error("Cannot center image sequence without dimensions");
+    }
+    expectedWidth ??= metadata.width;
+    expectedHeight ??= metadata.height;
+    if (metadata.width !== expectedWidth || metadata.height !== expectedHeight) {
+      throw new Error("Cannot center image sequence with mixed frame dimensions");
+    }
+    const raw = await image.raw().toBuffer();
+    const box = findAlphaForegroundBox(raw, metadata.width, metadata.height);
+    if (box) {
+      unionBox = mergeForegroundBoxes(unionBox, box);
+    }
+    frames.push({
+      input,
+      width: metadata.width,
+      height: metadata.height
+    });
+  }
+
+  if (!unionBox || expectedWidth === undefined || expectedHeight === undefined) {
+    return Promise.all(inputs.map((input) => sharp(input).png().toBuffer()));
+  }
+
+  const unionWidth = getBoxWidth(unionBox);
+  const unionHeight = getBoxHeight(unionBox);
+  const offsetX = Math.round((expectedWidth - unionWidth) / 2) - unionBox.left;
+  const offsetY = Math.round((expectedHeight - unionHeight) / 2) - unionBox.top;
+
+  return Promise.all(frames.map((frame) => shiftTransparentFrameBuffer(frame.input, frame.width, frame.height, offsetX, offsetY)));
+}
+
+async function centerTransparentFrameBuffer(input: Buffer): Promise<Buffer> {
+  const image = sharp(input).ensureAlpha();
+  const metadata = await image.metadata();
+  if (!metadata.width || !metadata.height) {
+    throw new Error("Cannot center transparent image without dimensions");
+  }
+  const raw = await image.raw().toBuffer();
+  const box = findAlphaForegroundBox(raw, metadata.width, metadata.height);
+  if (!box) {
+    return sharp(input).png().toBuffer();
+  }
+  const width = getBoxWidth(box);
+  const height = getBoxHeight(box);
+  const offsetX = Math.round((metadata.width - width) / 2) - box.left;
+  const offsetY = Math.round((metadata.height - height) / 2) - box.top;
+  return shiftTransparentFrameBuffer(input, metadata.width, metadata.height, offsetX, offsetY);
+}
+
+async function shiftTransparentFrameBuffer(
+  input: Buffer,
+  width: number,
+  height: number,
+  offsetX: number,
+  offsetY: number
+): Promise<Buffer> {
+  return sharp({
+    create: {
+      width,
+      height,
+      channels: 4,
+      background: { r: 0, g: 0, b: 0, alpha: 0 }
+    }
+  })
+    .composite([{
+      input,
+      left: offsetX,
+      top: offsetY
+    }])
+    .png()
+    .toBuffer();
+}
+
+async function normalizeTransparentFrameSubjectScale(frames: SlicedSpriteFrame[]): Promise<void> {
+  const boxes = await Promise.all(frames.map(async (frame) => {
+    const image = sharp(frame.buffer).ensureAlpha();
+    const metadata = await image.metadata();
+    if (!metadata.width || !metadata.height) {
+      return null;
+    }
+    const raw = await image.raw().toBuffer();
+    return findAlphaForegroundBox(raw, metadata.width, metadata.height);
+  }));
+  const heights = boxes
+    .filter((box): box is ForegroundBox => Boolean(box))
+    .map(getBoxHeight);
+  if (heights.length === 0) {
+    return;
+  }
+  const targetHeight = Math.max(...heights);
+  for (const [index, frame] of frames.entries()) {
+    const box = boxes[index];
+    if (!box) {
+      continue;
+    }
+    const sourceWidth = getBoxWidth(box);
+    const sourceHeight = getBoxHeight(box);
+    const scale = Math.min(targetHeight / sourceHeight, frame.width / sourceWidth, frame.height / sourceHeight);
+    const resizedWidth = Math.max(1, Math.round(sourceWidth * scale));
+    const resizedHeight = Math.max(1, Math.round(sourceHeight * scale));
+    const subject = await sharp(frame.buffer)
+      .extract({
+        left: box.left,
+        top: box.top,
+        width: sourceWidth,
+        height: sourceHeight
+      })
+      .resize(resizedWidth, resizedHeight, {
+        fit: "fill",
+        kernel: "nearest"
+      })
+      .png()
+      .toBuffer();
+    const left = Math.round((frame.width - resizedWidth) / 2);
+    const top = Math.round((frame.height - resizedHeight) / 2);
+    frame.buffer = await sharp({
+      create: {
+        width: frame.width,
+        height: frame.height,
+        channels: 4,
+        background: { r: 0, g: 0, b: 0, alpha: 0 }
+      }
+    })
+      .composite([{ input: subject, left, top }])
+      .png()
+      .toBuffer();
+  }
 }
 
 async function alignIdleDirectionToWalkFrames(

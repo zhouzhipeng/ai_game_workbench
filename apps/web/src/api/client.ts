@@ -47,6 +47,111 @@ export interface CharacterAssets {
   };
 }
 
+export interface PixelCharacterFolder {
+  id: string;
+  name: string;
+}
+
+export interface PixelCharacterAssetFile {
+  fileName: string;
+  url: string;
+}
+
+export interface PixelCharacterFrameAsset {
+  row: number;
+  index: number;
+  width?: number;
+  height?: number;
+  url: string;
+}
+
+export interface PixelCharacterAssets {
+  baseTemplate: {
+    characterReference?: PixelCharacterAssetFile;
+    output?: PixelCharacterAssetFile;
+  };
+  walkTemplate: {
+    output?: PixelCharacterAssetFile;
+  };
+  slices: {
+    idle: {
+      frames: PixelCharacterFrameAsset[];
+    };
+    walk: {
+      frames: PixelCharacterFrameAsset[];
+    };
+  };
+}
+
+export interface PixelSpriteActionTemplate {
+  id: "idle" | "walk";
+  name: string;
+  referenceImage: string;
+  rows: number;
+  columns: number;
+  constraintPrompt: string;
+}
+
+export interface CreateSpriteSheetGenerationInput {
+  actionId: "idle" | "walk";
+  model: string;
+  constraintPrompt?: string;
+  customPrompt?: string;
+  keyColor: string;
+  characterReferenceDataUrl?: string;
+  characterReferenceStoredName?: string;
+  characterReferenceUrl?: string;
+  pixelCharacterId?: string;
+  seed?: number;
+}
+
+export interface SpriteSheetGenerationResult {
+  fileName: string;
+  storedName: string;
+  localPath: string;
+  spriteSheetUrl: string;
+  localUrl: string;
+  publicUrl: string;
+  action: {
+    id: string;
+    name: string;
+  };
+  finalPrompt: string;
+  providerResponse?: unknown;
+}
+
+export type PixelSpriteSliceKind = "idle" | "walk";
+
+export interface ProcessSpriteSheetInput {
+  storedName?: string;
+  sourceUrl?: string;
+  pixelCharacterId?: string;
+  sliceKind: PixelSpriteSliceKind;
+  rows: number;
+  columns: number;
+  keyColor: string;
+  tolerance: number;
+  centerFrames?: boolean;
+  centerMode?: "frame" | "row";
+  outputFrameWidth?: number;
+  outputFrameHeight?: number;
+  normalizeSubjectScale?: boolean;
+  directionLayout?: "grid" | "contact-2x2";
+}
+
+export interface ProcessedSpriteSheetFrame extends PixelCharacterFrameAsset {
+  width: number;
+  height: number;
+}
+
+export interface ProcessSpriteSheetResult {
+  jobId: string;
+  rows: number;
+  columns: number;
+  frameCount: number;
+  frames: ProcessedSpriteSheetFrame[];
+}
+
 export interface AdvancedActionAssets {
   keyframe?: CharacterAssetFile;
   videoInput?: CharacterAssetFile;
@@ -282,6 +387,10 @@ export interface UploadAssetOptions {
   actionKind?: AdvancedActionKind;
 }
 
+export interface UploadModule02AssetOptions {
+  publicAssetBaseUrl?: string;
+}
+
 export interface UploadFrameVideoOptions {
   characterId?: string;
   actionKind?: AdvancedActionKind;
@@ -317,6 +426,111 @@ export async function deleteCharacter(characterId: string): Promise<CharacterFol
   }
   const body = await response.json() as { character?: CharacterFolder };
   return body.character ?? { id: characterId, name: characterId };
+}
+
+export async function listPixelCharacters(): Promise<PixelCharacterFolder[]> {
+  const response = await fetch(`${API_BASE}/api/module02/characters`);
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, `像素角色列表加载失败：${response.status}`));
+  }
+  const body = await response.json() as { characters?: PixelCharacterFolder[] };
+  return body.characters ?? [];
+}
+
+export async function createPixelCharacter(name: string): Promise<PixelCharacterFolder> {
+  const response = await fetch(`${API_BASE}/api/module02/characters`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name })
+  });
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, `像素角色创建失败：${response.status}`));
+  }
+  return response.json() as Promise<PixelCharacterFolder>;
+}
+
+export async function deletePixelCharacter(characterId: string): Promise<PixelCharacterFolder> {
+  const response = await fetch(`${API_BASE}/api/module02/characters/${encodeURIComponent(characterId)}`, {
+    method: "DELETE"
+  });
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, `像素角色删除失败：${response.status}`));
+  }
+  const body = await response.json() as { character?: PixelCharacterFolder };
+  return body.character ?? { id: characterId, name: characterId };
+}
+
+export async function getPixelCharacterAssets(characterId: string): Promise<PixelCharacterAssets> {
+  const response = await fetch(`${API_BASE}/api/module02/characters/${encodeURIComponent(characterId)}/assets`);
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, `像素角色文件加载失败：${response.status}`));
+  }
+  const body = await response.json() as { assets?: PixelCharacterAssets };
+  return body.assets ?? {
+    baseTemplate: {},
+    walkTemplate: {},
+    slices: {
+      idle: { frames: [] },
+      walk: { frames: [] }
+    }
+  };
+}
+
+export async function uploadModule02CharacterAsset(
+  characterId: string,
+  kind: "character-reference" | "base-template" | "walk-template",
+  file: File,
+  options: UploadModule02AssetOptions = {}
+): Promise<UploadedAsset> {
+  const formData = new FormData();
+  formData.append("file", file);
+  const response = await fetch(`${API_BASE}/api/module02/characters/${encodeURIComponent(characterId)}/assets/${encodeURIComponent(kind)}`, {
+    method: "POST",
+    headers: buildModule02UploadHeaders(options),
+    body: formData
+  });
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, `像素角色资源上传失败：${response.status}`));
+  }
+  return response.json() as Promise<UploadedAsset>;
+}
+
+export async function getPixelSpriteActions(): Promise<PixelSpriteActionTemplate[]> {
+  const response = await fetch(`${API_BASE}/api/module02/generation/sprite-sheet/actions`);
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, `像素动作模板加载失败：${response.status}`));
+  }
+  const body = await response.json() as { actions?: PixelSpriteActionTemplate[] };
+  return body.actions ?? [];
+}
+
+export async function createSpriteSheetGeneration(
+  input: CreateSpriteSheetGenerationInput,
+  options: GenerationRequestOptions = {}
+): Promise<SpriteSheetGenerationResult> {
+  const response = await fetch(`${API_BASE}/api/module02/generation/sprite-sheet`, {
+    method: "POST",
+    headers: buildGenerationHeaders(options),
+    body: JSON.stringify(input)
+  });
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, `像素 sprite sheet 生成失败：${response.status}`));
+  }
+  return response.json() as Promise<SpriteSheetGenerationResult>;
+}
+
+export async function processSpriteSheet(input: ProcessSpriteSheetInput): Promise<ProcessSpriteSheetResult> {
+  const response = await fetch(`${API_BASE}/api/module02/processing/sprite-sheet`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(input)
+  });
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, `像素 sprite sheet 切帧失败：${response.status}`));
+  }
+  return response.json() as Promise<ProcessSpriteSheetResult>;
 }
 
 export async function getModule01WorkflowConfig(): Promise<Module01WorkflowConfig | null> {
@@ -491,6 +705,15 @@ function buildUploadHeaders(options: UploadAssetOptions): Record<string, string>
   const actionKind = options.actionKind?.trim();
   if (actionKind) {
     headers["x-character-action-kind"] = actionKind;
+  }
+  return Object.keys(headers).length > 0 ? headers : undefined;
+}
+
+function buildModule02UploadHeaders(options: UploadModule02AssetOptions): Record<string, string> | undefined {
+  const headers: Record<string, string> = {};
+  const publicAssetBaseUrl = options.publicAssetBaseUrl?.trim();
+  if (publicAssetBaseUrl) {
+    headers["x-public-asset-base-url"] = publicAssetBaseUrl;
   }
   return Object.keys(headers).length > 0 ? headers : undefined;
 }

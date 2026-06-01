@@ -13,9 +13,11 @@ import { App } from "../src/App";
 
 const fetchMock = vi.fn();
 const characterBase = "/characters/hero";
+const pixelCharacterBase = "/module02/characters/pixel-hero";
 let videoStatusPayload: unknown;
 let module01WorkflowConfigPayload: unknown;
 let advancedCharacterAssetsPayload: unknown;
+let pixelCharacters: Array<{ id: string; name: string }>;
 
 beforeEach(() => {
   const NativeURL = globalThis.URL;
@@ -33,7 +35,117 @@ beforeEach(() => {
   };
   module01WorkflowConfigPayload = null;
   advancedCharacterAssetsPayload = undefined;
+  pixelCharacters = [{ id: "pixel-hero", name: "pixel-hero" }];
   fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+    if (url.endsWith("/api/module02/characters")) {
+      if (init?.method === "POST") {
+        const body = JSON.parse(String(init.body ?? "{}"));
+        const character = { id: body.name, name: body.name };
+        pixelCharacters = [...pixelCharacters.filter((item) => item.id !== character.id), character];
+        return jsonResponse(character, true, 201);
+      }
+      return jsonResponse({ characters: pixelCharacters });
+    }
+    if (url.endsWith("/api/module02/characters/pixel-hero") && init?.method === "DELETE") {
+      pixelCharacters = [];
+      return jsonResponse({ deleted: true, character: { id: "pixel-hero", name: "pixel-hero" } });
+    }
+    if (url.includes("/api/module02/characters/pixel-hero/assets")) {
+      return jsonResponse({
+        characterId: "pixel-hero",
+        assets: {
+          baseTemplate: {
+            characterReference: {
+              fileName: "character-reference.png",
+              url: `${pixelCharacterBase}/base-template/character-reference.png`
+            },
+            output: {
+              fileName: "output.png",
+              url: `${pixelCharacterBase}/base-template/output.png`
+            }
+          },
+          walkTemplate: {
+            output: {
+              fileName: "output.png",
+              url: `${pixelCharacterBase}/walk-template/output.png`
+            }
+          },
+          slices: {
+            idle: {
+              frames: [
+                { row: 1, index: 1, width: 64, height: 128, url: `${pixelCharacterBase}/slices/idle/frames/row_001/frame_001.png` }
+              ]
+            },
+            walk: {
+              frames: [
+                { row: 1, index: 1, width: 64, height: 128, url: `${pixelCharacterBase}/slices/walk/frames/row_001/frame_001.png` },
+                { row: 1, index: 2, width: 64, height: 128, url: `${pixelCharacterBase}/slices/walk/frames/row_001/frame_002.png` }
+              ]
+            }
+          }
+        }
+      });
+    }
+    if (url.includes("/api/module02/characters/") && url.includes("/assets/")) {
+      const kind = String(url).split("/assets/")[1] ?? "character-reference";
+      const directory = kind === "walk-template" ? "walk-template" : "base-template";
+      const storedName = kind === "character-reference" ? "character-reference.png" : "output.png";
+      return jsonResponse({
+        fileName: "upload.png",
+        storedName,
+        localUrl: `${pixelCharacterBase}/${directory}/${storedName}`,
+        publicUrl: `https://assets.example.com${pixelCharacterBase}/${directory}/${storedName}`
+      });
+    }
+    if (url.endsWith("/api/module02/generation/sprite-sheet/actions")) {
+      return jsonResponse({
+        actions: [
+          {
+            id: "idle",
+            name: "角色基准模板",
+            referenceImage: "idle-2x2-centered.png",
+            constraintPrompt: "生成角色基准模板",
+            defaultFrameCount: 2,
+            directionCount: 2
+          },
+          {
+            id: "walk",
+            name: "四方向步行图",
+            referenceImage: "walk-4x10-no-shadow.png",
+            constraintPrompt: "生成四方向步行图",
+            defaultFrameCount: 10,
+            directionCount: 4
+          }
+        ]
+      });
+    }
+    if (url.endsWith("/api/module02/generation/sprite-sheet")) {
+      const body = JSON.parse(String(init?.body ?? "{}"));
+      const folder = body.actionId === "walk" ? "walk-template" : "base-template";
+      return jsonResponse({
+        fileName: "output.png",
+        storedName: "output.png",
+        spriteSheetUrl: `${pixelCharacterBase}/${folder}/output.png`,
+        localUrl: `${pixelCharacterBase}/${folder}/output.png`,
+        publicUrl: `https://assets.example.com${pixelCharacterBase}/${folder}/output.png`,
+        action: { id: body.actionId, name: body.actionId === "walk" ? "四方向步行图" : "角色基准模板" },
+        finalPrompt: body.constraintPrompt
+      });
+    }
+    if (url.endsWith("/api/module02/processing/sprite-sheet")) {
+      const body = JSON.parse(String(init?.body ?? "{}"));
+      const sliceKind = body.sliceKind ?? "walk";
+      return jsonResponse({
+        jobId: `module02-character-pixel-hero-${sliceKind}`,
+        rows: body.rows,
+        columns: body.columns,
+        frameCount: 2,
+        frames: [
+          { row: 1, index: 1, width: 64, height: 128, url: `${pixelCharacterBase}/slices/${sliceKind}/frames/row_001/frame_001.png` },
+          { row: 1, index: 2, width: 64, height: 128, url: `${pixelCharacterBase}/slices/${sliceKind}/frames/row_001/frame_002.png` }
+        ]
+      });
+    }
     if (url.endsWith("/api/module01/workflow-config")) {
       if (init?.method === "PUT") {
         module01WorkflowConfigPayload = JSON.parse(String(init.body ?? "{}"));
@@ -411,7 +523,78 @@ function openSpriteAnimator() {
   fireEvent.click(screen.getByRole("button", { name: /模块 01：2D精美角色动画生成/i }));
 }
 
+function openPixelSpriteGenerator() {
+  localStorage.setItem("ai-game-workbench.pixel-sprite-generator.active-character", "pixel-hero");
+  render(<App />);
+  fireEvent.click(screen.getByRole("button", { name: /模块 02：像素角色生成器/i }));
+}
+
 describe("App", () => {
+  it("opens module 02 with its own pixel character sidebar and delete action", async () => {
+    const confirmMock = vi.fn(() => true);
+    vi.stubGlobal("confirm", confirmMock);
+    openPixelSpriteGenerator();
+
+    expect(screen.getByRole("heading", { name: "像素角色生成器" })).toBeInTheDocument();
+    expect(await screen.findByLabelText("当前像素角色")).toHaveValue("pixel-hero");
+    expect(screen.getByRole("button", { name: "角色基准模板" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "四方向步行图" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "切帧" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "角色预览" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "删除像素角色 pixel-hero" }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:8787/api/module02/characters/pixel-hero",
+      expect.objectContaining({ method: "DELETE" })
+    ));
+    expect(confirmMock).toHaveBeenCalledWith("确认删除像素角色「pixel-hero」？此操作会删除整个像素角色文件夹，不能撤销。");
+    expect(screen.getByLabelText("当前像素角色")).toHaveValue("");
+  });
+
+  it("uses module 02 APIs for base generation, walk generation, and one-click slicing", async () => {
+    openPixelSpriteGenerator();
+
+    expect(await screen.findByAltText("角色参考图预览")).toHaveAttribute(
+      "src",
+      expect.stringContaining(`${pixelCharacterBase}/base-template/character-reference.png`)
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "生成角色基准模板" }));
+    await waitFor(() => expect(fetchMock.mock.calls.some(([url, init]) =>
+      String(url).endsWith("/api/module02/generation/sprite-sheet")
+      && String((init as RequestInit).body).includes('"actionId":"idle"')
+    )).toBe(true));
+
+    fireEvent.click(screen.getByRole("button", { name: "四方向步行图" }));
+    fireEvent.click(screen.getByRole("button", { name: "生成四方向步行图" }));
+    await waitFor(() => expect(fetchMock.mock.calls.some(([url, init]) =>
+      String(url).endsWith("/api/module02/generation/sprite-sheet")
+      && String((init as RequestInit).body).includes('"actionId":"walk"')
+    )).toBe(true));
+
+    fireEvent.click(screen.getByRole("button", { name: "切帧" }));
+    fireEvent.click(screen.getByRole("button", { name: "一键处理切帧" }));
+
+    await waitFor(() => {
+      const processingCalls = fetchMock.mock.calls
+        .filter(([url]) => String(url).endsWith("/api/module02/processing/sprite-sheet"))
+        .map(([, init]) => JSON.parse(String((init as RequestInit).body)));
+      expect(processingCalls).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          pixelCharacterId: "pixel-hero",
+          sliceKind: "walk",
+          sourceUrl: `${pixelCharacterBase}/walk-template/output.png`
+        }),
+        expect.objectContaining({
+          pixelCharacterId: "pixel-hero",
+          sliceKind: "idle",
+          sourceUrl: `${pixelCharacterBase}/base-template/output.png`
+        })
+      ]));
+    });
+  });
+
   it("opens module 01 with two-level navigation and the base template page", () => {
     openSpriteAnimator();
 

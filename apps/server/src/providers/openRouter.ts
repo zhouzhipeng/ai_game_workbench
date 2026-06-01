@@ -20,6 +20,13 @@ export interface BuildVideoGenerationPayloadInput {
   resolution?: "480p" | "720p" | "1080p" | string;
 }
 
+export interface BuildSpriteSheetGenerationPayloadInput {
+  model: string;
+  prompt: string;
+  referenceImageDataUrls?: readonly string[];
+  seed?: number;
+}
+
 export interface OpenRouterClientOptions {
   apiKey: string;
   baseUrl?: string;
@@ -64,6 +71,29 @@ export function buildImageGenerationPayload(input: BuildImageGenerationPayloadIn
     ],
     modalities: getImageGenerationModalities(input.model),
     ...buildImageConfig(input.model, input.targetSize),
+    stream: false,
+    ...(input.seed === undefined ? {} : { seed: input.seed })
+  };
+}
+
+export function buildSpriteSheetGenerationPayload(input: BuildSpriteSheetGenerationPayloadInput) {
+  const content = [
+    { type: "text" as const, text: input.prompt },
+    ...(input.referenceImageDataUrls ?? []).map((url) => ({
+      type: "image_url" as const,
+      image_url: { url }
+    }))
+  ];
+
+  return {
+    model: input.model,
+    messages: [
+      {
+        role: "user" as const,
+        content
+      }
+    ],
+    modalities: getImageGenerationModalities(input.model),
     stream: false,
     ...(input.seed === undefined ? {} : { seed: input.seed })
   };
@@ -179,7 +209,9 @@ export class OpenRouterClient {
     this.fetchImpl = options.fetchImpl ?? fetch;
   }
 
-  async createImage(payload: ReturnType<typeof buildImageGenerationPayload>): Promise<unknown> {
+  async createImage(
+    payload: ReturnType<typeof buildImageGenerationPayload> | ReturnType<typeof buildSpriteSheetGenerationPayload>
+  ): Promise<unknown> {
     return this.postJson("/chat/completions", payload);
   }
 
