@@ -69,7 +69,7 @@ export function buildImageGenerationPayload(input: BuildImageGenerationPayloadIn
         content
       }
     ],
-    modalities: getImageGenerationModalities(input.model),
+    modalities: ["image", "text"] as const,
     ...buildImageConfig(input.model, input.targetSize),
     stream: false,
     ...(input.seed === undefined ? {} : { seed: input.seed })
@@ -93,14 +93,10 @@ export function buildSpriteSheetGenerationPayload(input: BuildSpriteSheetGenerat
         content
       }
     ],
-    modalities: getImageGenerationModalities(input.model),
+    modalities: ["image", "text"] as const,
     stream: false,
     ...(input.seed === undefined ? {} : { seed: input.seed })
   };
-}
-
-function getImageGenerationModalities(model: string) {
-  return isImageOnlyModel(model) ? (["image"] as const) : (["image", "text"] as const);
 }
 
 function buildImageConfig(model: string, targetSize: number) {
@@ -116,7 +112,7 @@ function buildImageConfig(model: string, targetSize: number) {
 }
 
 function supportsImageConfig(model: string): boolean {
-  return model === "openai/gpt-5.4-image-2" || model.startsWith("google/gemini-");
+  return model.startsWith("google/gemini-");
 }
 
 function getOpenRouterImageSize(model: string, targetSize: number) {
@@ -133,16 +129,6 @@ function getOpenRouterImageSize(model: string, targetSize: number) {
     return "2K" as const;
   }
   return "4K" as const;
-}
-
-function isImageOnlyModel(model: string): boolean {
-  return [
-    "bytedance-seed/",
-    "black-forest-labs/",
-    "recraft/",
-    "sourceful/",
-    "x-ai/grok-imagine-image"
-  ].some((prefix) => model.startsWith(prefix));
 }
 
 export function buildVideoGenerationPayload(input: BuildVideoGenerationPayloadInput) {
@@ -187,13 +173,7 @@ export function buildVideoGenerationPayload(input: BuildVideoGenerationPayloadIn
 
 export function getShortestVideoDurationSeconds(model: string): number {
   const durations: Record<string, number> = {
-    "bytedance/seedance-2.0": 4,
-    "bytedance/seedance-2.0-fast": 4,
-    "bytedance/seedance-1-5-pro": 4,
-    "x-ai/grok-imagine-video": 1,
-    "kwaivgi/kling-v3.0-std": 3,
-    "kwaivgi/kling-v3.0-pro": 3,
-    "kwaivgi/kling-video-o1": 5
+    "bytedance/seedance-2.0": 4
   };
   return durations[model] ?? 4;
 }

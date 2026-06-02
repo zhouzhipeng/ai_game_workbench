@@ -65,7 +65,7 @@ describe("generation route", () => {
         "x-character-id": "hero"
       },
       payload: {
-        model: "openai/gpt-5.4-image-2",
+        model: "google/gemini-3.1-flash-image-preview",
         prompt: "高清2D角色首帧",
         targetSize: 1024,
         keyColor: "#00ff00"
@@ -126,7 +126,7 @@ describe("generation route", () => {
       },
       payload: {
         actionKind: "attack-1",
-        model: "openai/gpt-5.4-image-2",
+        model: "google/gemini-3.1-flash-image-preview",
         prompt: "生成攻击动作中间帧",
         targetSize: 1024,
         keyColor: "#00ff00",
@@ -186,7 +186,7 @@ describe("generation route", () => {
         "x-public-asset-base-url": "https://assets.example.com"
       },
       payload: {
-        model: "bytedance-seed/seedream-4.5",
+        model: "google/gemini-3.1-flash-image-preview",
         prompt: "高清2D角色首帧",
         targetSize: 256,
         keyColor: "#00ff00"
@@ -477,7 +477,7 @@ describe("generation route", () => {
       },
       payload: {
         templateKind: "run",
-        model: "openai/gpt-5.4-image-2",
+        model: "google/gemini-3.1-flash-image-preview",
         prompt: "生成跑步四方向图",
         targetSize: 1024,
         keyColor: "#00ff00",
@@ -510,7 +510,7 @@ describe("generation route", () => {
       url: "/api/generation/direction-template/payload",
       payload: {
         templateKind: "idle",
-        model: "openai/gpt-5.4-image-2",
+        model: "google/gemini-3.1-flash-image-preview",
         prompt: "生成待机四方向图",
         targetSize: 1024,
         keyColor: "#00ff00",
@@ -577,7 +577,7 @@ describe("generation route", () => {
       },
       payload: {
         templateKind: "walk",
-        model: "openai/gpt-5.4-image-2",
+        model: "google/gemini-3.1-flash-image-preview",
         prompt: "生成步行四方向图",
         targetSize: 1024,
         keyColor: "#00ff00",
@@ -637,7 +637,7 @@ describe("generation route", () => {
       },
       payload: {
         templateKind: "walk",
-        model: "openai/gpt-5.4-image-2",
+        model: "google/gemini-3.1-flash-image-preview",
         prompt: "生成步行四方向图",
         targetSize: 1024,
         keyColor: "#00ff00",
@@ -752,7 +752,7 @@ describe("generation route", () => {
       },
       payload: {
         templateKind: "idle",
-        model: "openai/gpt-5.4-image-2",
+        model: "google/gemini-3.1-flash-image-preview",
         prompt: "生成待机四方向图",
         targetSize: 1024,
         keyColor: "#00ff00",
@@ -937,7 +937,7 @@ describe("generation route", () => {
           }
         });
       }
-      return Response.json({ id: "video_job_kling" });
+      return Response.json({ id: "video_job_seedance" });
     });
     vi.stubGlobal("fetch", fetchMock);
     const app = createApp({
@@ -955,7 +955,7 @@ describe("generation route", () => {
         "x-openrouter-api-key": "sk-or-v1-web-key"
       },
       payload: {
-        model: "kwaivgi/kling-v3.0-std",
+        model: "bytedance/seedance-2.0",
         prompt: "正面奔跑循环",
         firstFrameUrl: "https://example.com/hero.png"
       }
@@ -964,8 +964,8 @@ describe("generation route", () => {
     expect(response.statusCode).toBe(200);
     const requestBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body));
     expect(requestBody).toMatchObject({
-      model: "kwaivgi/kling-v3.0-std",
-      duration: 3,
+      model: "bytedance/seedance-2.0",
+      duration: 4,
       resolution: "720p",
       aspect_ratio: "1:1",
       generate_audio: false

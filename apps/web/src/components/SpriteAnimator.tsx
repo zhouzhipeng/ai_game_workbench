@@ -176,7 +176,6 @@ const DEFAULT_EXPORT_FRAME_SIZE = 1024;
 const DEFAULT_CHROMA_KEY_TOLERANCE = 255;
 const DEFAULT_ATTACK_START_SCALE = 0.74;
 const DEFAULT_JUMP_START_SCALE = 0.78;
-const LEGACY_SEEDREAM_IMAGE_MODEL = "bytedance-seed/seedream-4.5";
 const LOCAL_CODEX_IMAGE_MODEL = "local/gpt-image-2";
 const APIMART_IMAGE_MODEL = "apimart/gpt-image-2";
 interface ImageGenerationSizeOption {
@@ -201,15 +200,6 @@ const IMAGE_MODELS = [
     ]
   },
   {
-    id: "openai/gpt-5.4-image-2",
-    label: "GPT Image 2 (openai/gpt-5.4-image-2)",
-    sizeOptions: [
-      { size: 1024, label: "1024 x 1024 (1K)" },
-      { size: 2048, label: "2048 x 2048 (2K)" },
-      { size: 2880, label: "2880 x 2880 (最大正方形)" }
-    ]
-  },
-  {
     id: LOCAL_CODEX_IMAGE_MODEL,
     label: "local GPT image2",
     sizeOptions: [
@@ -226,13 +216,6 @@ const IMAGE_MODELS = [
       { size: 1024, label: "1024 x 1024 (1K)" },
       { size: 2048, label: "2048 x 2048 (2K)" },
       { size: 4096, label: "4096 x 4096 (4K)" }
-    ]
-  },
-  {
-    id: LEGACY_SEEDREAM_IMAGE_MODEL,
-    label: "Seedream 4.5 (bytedance-seed/seedream-4.5)",
-    sizeOptions: [
-      { size: 1024, label: "1024 x 1024 (默认)" }
     ]
   }
 ] satisfies readonly ImageModelOption[];
@@ -325,43 +308,11 @@ function rangeInclusive(start: number, end: number): number[] {
 
 const VIDEO_MODELS = [
   {
-    id: "x-ai/grok-imagine-video",
-    label: "Grok Imagine Video",
-    durationOptions: rangeInclusive(1, 15),
-    defaultDurationSeconds: 1,
-    resolutionOptions: ["480p", "720p"],
-    defaultResolution: "480p"
-  },
-  {
     id: "bytedance/seedance-2.0",
     label: "Seedance 2.0",
     durationOptions: rangeInclusive(4, 15),
     defaultDurationSeconds: 4,
     resolutionOptions: ["480p", "720p", "1080p"],
-    defaultResolution: "720p"
-  },
-  {
-    id: "bytedance/seedance-2.0-fast",
-    label: "Seedance 2.0 Fast",
-    durationOptions: rangeInclusive(4, 15),
-    defaultDurationSeconds: 4,
-    resolutionOptions: ["480p", "720p", "1080p"],
-    defaultResolution: "720p"
-  },
-  {
-    id: "kwaivgi/kling-v3.0-std",
-    label: "Kling v3.0 标准",
-    durationOptions: rangeInclusive(3, 15),
-    defaultDurationSeconds: 3,
-    resolutionOptions: ["720p"],
-    defaultResolution: "720p"
-  },
-  {
-    id: "kwaivgi/kling-v3.0-pro",
-    label: "Kling v3.0 Pro",
-    durationOptions: rangeInclusive(3, 15),
-    defaultDurationSeconds: 3,
-    resolutionOptions: ["720p"],
     defaultResolution: "720p"
   }
 ] satisfies readonly VideoModelOption[];
@@ -4055,9 +4006,6 @@ function normalizeDraft(
   isLegacy: boolean
 ): SpriteAnimatorDraft {
   const next = { ...draft };
-  if (isLegacy && next.imageModel === LEGACY_SEEDREAM_IMAGE_MODEL) {
-    next.imageModel = DEFAULT_IMAGE_MODEL;
-  }
   if (!isKnownImageModel(next.imageModel)) {
     next.imageModel = fallback.imageModel;
   }

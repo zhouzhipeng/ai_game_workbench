@@ -27,7 +27,7 @@ function makeStartPayload(overrides: Record<string, unknown> = {}) {
     publicAssetBaseUrl: "https://assets.example.com",
     referenceImageDataUrl: "data:image/png;base64,AQIDBA==",
     firstFrame: {
-      model: "openai/gpt-5.4-image-2",
+      model: "google/gemini-3.1-flash-image-preview",
       prompt: "base template prompt",
       targetSize: 1024,
       keyColor: "#00ff00",

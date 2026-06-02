@@ -33,6 +33,14 @@ describe("provider settings routes", () => {
     });
 
     expect(response.statusCode).toBe(200);
+    expect(response.json().imageModels.map((model: { id: string }) => model.id)).toEqual([
+      "local/gpt-image-2",
+      "google/gemini-3.1-flash-image-preview",
+      "apimart/gpt-image-2"
+    ]);
+    expect(response.json().videoModels.map((model: { id: string }) => model.id)).toEqual([
+      "bytedance/seedance-2.0"
+    ]);
     expect(response.json()).toMatchObject({
       defaults: {
         imageModelId: "apimart/gpt-image-2",

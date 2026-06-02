@@ -15,7 +15,6 @@ const fetchMock = vi.fn();
 const characterBase = "/characters/hero";
 const pixelCharacterBase = "/module02/characters/pixel-hero";
 const APIMART_IMAGE_MODEL = "apimart/gpt-image-2";
-const OPENROUTER_IMAGE_MODEL = "openai/gpt-5.4-image-2";
 const NANO_IMAGE_MODEL = "google/gemini-3.1-flash-image-preview";
 let videoStatusPayload: unknown;
 let module01WorkflowConfigPayload: unknown;
@@ -527,20 +526,6 @@ function makeProviderModelCatalog() {
       defaultImageSize: 1024
     },
     {
-      id: OPENROUTER_IMAGE_MODEL,
-      providerId: "openrouter",
-      upstreamModel: OPENROUTER_IMAGE_MODEL,
-      label: "GPT Image 2",
-      capability: "image",
-      enabled: true,
-      imageSizeOptions: [
-        { size: 1024, label: "1024 x 1024 (1K)" },
-        { size: 2048, label: "2048 x 2048 (2K)" },
-        { size: 2880, label: "2880 x 2880" }
-      ],
-      defaultImageSize: 1024
-    },
-    {
       id: NANO_IMAGE_MODEL,
       providerId: "openrouter",
       upstreamModel: NANO_IMAGE_MODEL,
@@ -558,18 +543,6 @@ function makeProviderModelCatalog() {
   ];
   const videoModels = [
     {
-      id: "x-ai/grok-imagine-video",
-      providerId: "openrouter",
-      upstreamModel: "x-ai/grok-imagine-video",
-      label: "Grok Imagine Video",
-      capability: "video",
-      enabled: true,
-      durationOptions: [1, 2, 3],
-      defaultDurationSeconds: 1,
-      resolutionOptions: ["480p", "720p"],
-      defaultResolution: "480p"
-    },
-    {
       id: "bytedance/seedance-2.0",
       providerId: "openrouter",
       upstreamModel: "bytedance/seedance-2.0",
@@ -579,30 +552,6 @@ function makeProviderModelCatalog() {
       durationOptions: [4, 5, 6],
       defaultDurationSeconds: 4,
       resolutionOptions: ["480p", "720p", "1080p"],
-      defaultResolution: "720p"
-    },
-    {
-      id: "kwaivgi/kling-v3.0-std",
-      providerId: "openrouter",
-      upstreamModel: "kwaivgi/kling-v3.0-std",
-      label: "Kling v3.0 Standard",
-      capability: "video",
-      enabled: true,
-      durationOptions: [3, 4, 5],
-      defaultDurationSeconds: 3,
-      resolutionOptions: ["720p"],
-      defaultResolution: "720p"
-    },
-    {
-      id: "kwaivgi/kling-v3.0-pro",
-      providerId: "openrouter",
-      upstreamModel: "kwaivgi/kling-v3.0-pro",
-      label: "Kling v3.0 Pro",
-      capability: "video",
-      enabled: true,
-      durationOptions: [3, 4, 5],
-      defaultDurationSeconds: 3,
-      resolutionOptions: ["720p"],
       defaultResolution: "720p"
     }
   ];
@@ -1301,7 +1250,6 @@ describe("App", () => {
     expect(screen.getByRole("button", { name: /一键处理步行循环/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /保存步行四方向配置/i })).toBeInTheDocument();
     expect(screen.getByLabelText(/视频模型/i)).toHaveValue("bytedance/seedance-2.0");
-    expect(screen.getByRole("option", { name: /Grok Imagine Video/i })).toHaveValue("x-ai/grok-imagine-video");
     expect(screen.getByLabelText(/视频时长/i)).toHaveValue("4");
     expect(screen.getByLabelText(/视频分辨率/i)).toHaveValue("720p");
     expect(within(screen.getByLabelText(/视频分辨率/i)).getByRole("option", { name: "1080p" })).toBeInTheDocument();
@@ -1328,10 +1276,10 @@ describe("App", () => {
     expect(screen.getAllByText("待机四方向预览").length).toBeGreaterThanOrEqual(1);
   });
 
-  it("migrates the old Seedream image default to APIMart without restoring browser keys", () => {
+  it("migrates an unavailable image default to APIMart without restoring browser keys", () => {
     localStorage.setItem("ai-game-workbench.sprite-animator.workflow.v2", JSON.stringify({
       openRouterApiKey: "sk-or-v1-saved-key",
-      imageModel: "bytedance-seed/seedream-4.5"
+      imageModel: "deleted-image-model"
     }));
 
     openSpriteAnimator();
@@ -1544,11 +1492,11 @@ describe("App", () => {
     expect(firstFrameBody.referenceImageDataUrl).toMatch(/^data:image\/png;base64,/);
 
     fireEvent.change(screen.getByLabelText(/视频模型/i), {
-      target: { value: "kwaivgi/kling-v3.0-std" }
+      target: { value: "bytedance/seedance-2.0" }
     });
-    expect(screen.getByLabelText(/视频时长/i)).toHaveValue("3");
+    expect(screen.getByLabelText(/视频时长/i)).toHaveValue("4");
     expect(screen.getByLabelText(/视频分辨率/i)).toHaveValue("720p");
-    expect(within(screen.getByLabelText(/视频分辨率/i)).queryByRole("option", { name: "1080p" })).not.toBeInTheDocument();
+    expect(within(screen.getByLabelText(/视频分辨率/i)).getByRole("option", { name: "1080p" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /提交视频任务/i }));
 
@@ -1571,8 +1519,8 @@ describe("App", () => {
       String(url).includes("/api/generation/video") && (init as RequestInit | undefined)?.method === "POST"
     );
     expect(JSON.parse(String(videoCall?.[1]?.body))).toMatchObject({
-      model: "kwaivgi/kling-v3.0-std",
-      durationSeconds: 3,
+      model: "bytedance/seedance-2.0",
+      durationSeconds: 4,
       resolution: "720p",
       firstFrameUrl: `https://assets.example.com${characterBase}/base-character/direction-templates/walk-4dir.png`
     });
@@ -1597,19 +1545,19 @@ describe("App", () => {
     expect(screen.getByAltText("步行 2x2 输出预览")).toHaveAttribute("src", "blob:uploaded-input-preview");
 
     fireEvent.change(screen.getByLabelText(/视频模型/i), {
-      target: { value: "x-ai/grok-imagine-video" }
+      target: { value: "bytedance/seedance-2.0" }
     });
     const durationSelect = screen.getByLabelText(/视频时长/i);
-    expect(durationSelect).toHaveValue("1");
-    expect(within(durationSelect).getByRole("option", { name: "2 秒" })).toBeInTheDocument();
+    expect(durationSelect).toHaveValue("4");
+    expect([...durationSelect.querySelectorAll("option")].map((option) => option.value)).toContain("5");
     const resolutionSelect = screen.getByLabelText(/视频分辨率/i);
-    expect(resolutionSelect).toHaveValue("480p");
-    expect(within(resolutionSelect).getByRole("option", { name: "720p" })).toBeInTheDocument();
+    expect(resolutionSelect).toHaveValue("720p");
+    expect([...resolutionSelect.querySelectorAll("option")].map((option) => option.value)).toContain("1080p");
     fireEvent.change(durationSelect, {
-      target: { value: "2" }
+      target: { value: "5" }
     });
     fireEvent.change(resolutionSelect, {
-      target: { value: "720p" }
+      target: { value: "1080p" }
     });
     fireEvent.click(screen.getByRole("button", { name: /提交视频任务/i }));
 
@@ -1618,9 +1566,9 @@ describe("App", () => {
       String(url).includes("/api/generation/video") && (init as RequestInit | undefined)?.method === "POST"
     );
     expect(JSON.parse(String(videoCall?.[1]?.body))).toMatchObject({
-      model: "x-ai/grok-imagine-video",
-      durationSeconds: 2,
-      resolution: "720p",
+      model: "bytedance/seedance-2.0",
+      durationSeconds: 5,
+      resolution: "1080p",
       firstFrameUrl: `https://assets.example.com${characterBase}/base-character/walk-video/input-4dir.png`
     });
   });
@@ -1775,14 +1723,14 @@ describe("App", () => {
       imageStyle: "cel-anime",
       imageSystemPrompt: "后端系统提示词：第一张图控制画风，第二张图控制角色。",
       imageCustomPrompt: "后端自定义提示词：下方向怯生生走路第一帧。",
-      directionImageModel: "openai/gpt-5.4-image-2",
+      directionImageModel: NANO_IMAGE_MODEL,
       directionImageGenerationSize: 1024,
       directionIdleSystemPrompt: "后端待机系统提示词",
       directionIdleCustomPrompt: "后端待机自定义提示词",
       directionWalkSystemPrompt: "后端步行系统提示词",
       directionWalkCustomPrompt: "后端步行自定义提示词",
-      videoModel: "x-ai/grok-imagine-video",
-      videoDurationSeconds: 2,
+      videoModel: "bytedance/seedance-2.0",
+      videoDurationSeconds: 4,
       videoResolution: "720p",
       videoSystemPrompt: "后端视频系统提示词",
       videoCustomPrompt: "后端视频自定义提示词"
@@ -1847,7 +1795,7 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "步行四方向" }));
 
     fireEvent.change(screen.getByLabelText(/视频模型/i), {
-      target: { value: "kwaivgi/kling-v3.0-pro" }
+      target: { value: "bytedance/seedance-2.0" }
     });
     fireEvent.change(screen.getByLabelText("视频系统提示词"), {
       target: { value: "已保存的视频系统提示词：四方向四宫格原地行走循环。" }
@@ -1866,8 +1814,8 @@ describe("App", () => {
     openSpriteAnimator();
     fireEvent.click(screen.getByRole("button", { name: "步行四方向" }));
 
-    expect(screen.getByLabelText(/视频模型/i)).toHaveValue("kwaivgi/kling-v3.0-pro");
-    expect(screen.getByLabelText(/视频时长/i)).toHaveValue("3");
+    expect(screen.getByLabelText(/视频模型/i)).toHaveValue("bytedance/seedance-2.0");
+    expect(screen.getByLabelText(/视频时长/i)).toHaveValue("4");
     expect(screen.queryByLabelText(/视频视角/i)).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/动作模板/i)).not.toBeInTheDocument();
     expect(screen.getByLabelText("视频系统提示词")).toHaveValue("已保存的视频系统提示词：四方向四宫格原地行走循环。");
@@ -1892,7 +1840,7 @@ describe("App", () => {
     expect(readHeader(fetchMock.mock.calls.at(-1)?.[1]?.headers, "x-character-id")).toBe(encodedCharacterId);
 
     await createFirstFrameGeneration({
-      model: "openai/gpt-5.4-image-2",
+      model: APIMART_IMAGE_MODEL,
       prompt: "生成角色",
       targetSize: 1024,
       keyColor: "#00ff00"

@@ -52,28 +52,16 @@ describe("buildImageGenerationPayload", () => {
     expect(payload.seed).toBe(123);
   });
 
-  it("uses image-only output modalities for Seedream image generation", () => {
+  it("uses the selected 2K square size for Nano Banana 2", () => {
     const payload = buildImageGenerationPayload({
-      model: "bytedance-seed/seedream-4.5",
-      prompt: "正面像素角色",
-      targetSize: 512,
-      keyColor: "#00ff00"
-    });
-
-    expect(payload.modalities).toEqual(["image"]);
-    expect(payload).not.toHaveProperty("image_config");
-  });
-
-  it("uses the selected square size for GPT Image 2", () => {
-    const payload = buildImageGenerationPayload({
-      model: "openai/gpt-5.4-image-2",
+      model: "google/gemini-3.1-flash-image-preview",
       prompt: "正面像素角色",
       targetSize: 2048,
       keyColor: "#00ff00",
       referenceImageDataUrl: "data:image/png;base64,abc123"
     });
 
-    expect(payload.model).toBe("openai/gpt-5.4-image-2");
+    expect(payload.model).toBe("google/gemini-3.1-flash-image-preview");
     expect(payload.modalities).toEqual(["image", "text"]);
     expect(payload.image_config).toEqual({
       aspect_ratio: "1:1",
@@ -108,7 +96,7 @@ describe("buildImageGenerationPayload", () => {
 
   it("keeps explicit multi-image inputs in the supplied order", () => {
     const payload = buildImageGenerationPayload({
-      model: "openai/gpt-5.4-image-2",
+      model: "google/gemini-3.1-flash-image-preview",
       prompt: "四方向待机精灵图",
       targetSize: 1024,
       keyColor: "#00ff00",
@@ -143,14 +131,14 @@ describe("buildImageGenerationPayload", () => {
 describe("buildVideoGenerationPayload", () => {
   it("builds an OpenRouter image-to-video payload with a first-frame image", () => {
     const payload = buildVideoGenerationPayload({
-      model: "bytedance/seedance-2.0-fast",
+      model: "bytedance/seedance-2.0",
       prompt: "walk forward in a short loop",
       firstFrameUrl: "https://example.com/first-frame.png",
       durationSeconds: 4
     });
 
     expect(payload).toEqual({
-      model: "bytedance/seedance-2.0-fast",
+      model: "bytedance/seedance-2.0",
       prompt: "walk forward in a short loop",
       duration: 4,
       resolution: "720p",
@@ -170,13 +158,13 @@ describe("buildVideoGenerationPayload", () => {
 
   it("uses the shortest supported duration and fixed square 720p video defaults", () => {
     const payload = buildVideoGenerationPayload({
-      model: "kwaivgi/kling-v3.0-std",
+      model: "bytedance/seedance-2.0",
       prompt: "正面奔跑循环",
       firstFrameUrl: "https://example.com/first-frame.png"
     });
 
     expect(payload).toMatchObject({
-      duration: 3,
+      duration: 4,
       resolution: "720p",
       aspect_ratio: "1:1",
       generate_audio: false
@@ -185,19 +173,19 @@ describe("buildVideoGenerationPayload", () => {
     expect(payload).not.toHaveProperty("seed");
   });
 
-  it("passes selected Grok video duration and resolution", () => {
+  it("passes selected Seedance video duration and resolution", () => {
     const payload = buildVideoGenerationPayload({
-      model: "x-ai/grok-imagine-video",
+      model: "bytedance/seedance-2.0",
       prompt: "2D角色向下行走循环",
       firstFrameUrl: "https://example.com/first-frame.png",
-      durationSeconds: 2,
-      resolution: "480p"
+      durationSeconds: 5,
+      resolution: "1080p"
     });
 
     expect(payload).toMatchObject({
-      model: "x-ai/grok-imagine-video",
-      duration: 2,
-      resolution: "480p",
+      model: "bytedance/seedance-2.0",
+      duration: 5,
+      resolution: "1080p",
       aspect_ratio: "1:1",
       generate_audio: false
     });

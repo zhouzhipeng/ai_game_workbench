@@ -73,20 +73,6 @@ export const DEFAULT_PROVIDER_SETTINGS: readonly ProviderSettings[] = [
 
 export const DEFAULT_PROVIDER_MODEL_PRESETS: readonly ProviderModelPreset[] = [
   {
-    id: "openai/gpt-5.4-image-2",
-    providerId: OPENROUTER_PROVIDER_ID,
-    upstreamModel: "openai/gpt-5.4-image-2",
-    label: "GPT Image 2",
-    capability: "image",
-    enabled: true,
-    imageSizeOptions: [
-      { size: 1024, label: "1024 x 1024 (1K)" },
-      { size: 2048, label: "2048 x 2048 (2K)" },
-      { size: 2880, label: "2880 x 2880" }
-    ],
-    defaultImageSize: 1024
-  },
-  {
     id: LOCAL_CODEX_IMAGE_MODEL,
     providerId: LOCAL_CODEX_PROVIDER_ID,
     upstreamModel: LOCAL_CODEX_IMAGE_MODEL,
@@ -116,18 +102,6 @@ export const DEFAULT_PROVIDER_MODEL_PRESETS: readonly ProviderModelPreset[] = [
     defaultImageSize: 1024
   },
   {
-    id: "bytedance-seed/seedream-4.5",
-    providerId: OPENROUTER_PROVIDER_ID,
-    upstreamModel: "bytedance-seed/seedream-4.5",
-    label: "Seedream 4.5",
-    capability: "image",
-    enabled: true,
-    imageSizeOptions: [
-      { size: 1024, label: "1024 x 1024" }
-    ],
-    defaultImageSize: 1024
-  },
-  {
     id: "apimart/gpt-image-2",
     providerId: OPENROUTER_COMPATIBLE_PROVIDER_ID,
     upstreamModel: "gpt-image-2",
@@ -142,18 +116,6 @@ export const DEFAULT_PROVIDER_MODEL_PRESETS: readonly ProviderModelPreset[] = [
     defaultImageSize: 1024
   },
   {
-    id: "x-ai/grok-imagine-video",
-    providerId: OPENROUTER_PROVIDER_ID,
-    upstreamModel: "x-ai/grok-imagine-video",
-    label: "Grok Imagine Video",
-    capability: "video",
-    enabled: true,
-    durationOptions: rangeInclusive(1, 15),
-    defaultDurationSeconds: 1,
-    resolutionOptions: ["480p", "720p"],
-    defaultResolution: "480p"
-  },
-  {
     id: "bytedance/seedance-2.0",
     providerId: OPENROUTER_PROVIDER_ID,
     upstreamModel: "bytedance/seedance-2.0",
@@ -163,42 +125,6 @@ export const DEFAULT_PROVIDER_MODEL_PRESETS: readonly ProviderModelPreset[] = [
     durationOptions: rangeInclusive(4, 15),
     defaultDurationSeconds: 4,
     resolutionOptions: ["480p", "720p", "1080p"],
-    defaultResolution: "720p"
-  },
-  {
-    id: "bytedance/seedance-2.0-fast",
-    providerId: OPENROUTER_PROVIDER_ID,
-    upstreamModel: "bytedance/seedance-2.0-fast",
-    label: "Seedance 2.0 Fast",
-    capability: "video",
-    enabled: true,
-    durationOptions: rangeInclusive(4, 15),
-    defaultDurationSeconds: 4,
-    resolutionOptions: ["480p", "720p", "1080p"],
-    defaultResolution: "720p"
-  },
-  {
-    id: "kwaivgi/kling-v3.0-std",
-    providerId: OPENROUTER_PROVIDER_ID,
-    upstreamModel: "kwaivgi/kling-v3.0-std",
-    label: "Kling v3.0 Standard",
-    capability: "video",
-    enabled: true,
-    durationOptions: rangeInclusive(3, 15),
-    defaultDurationSeconds: 3,
-    resolutionOptions: ["720p"],
-    defaultResolution: "720p"
-  },
-  {
-    id: "kwaivgi/kling-v3.0-pro",
-    providerId: OPENROUTER_PROVIDER_ID,
-    upstreamModel: "kwaivgi/kling-v3.0-pro",
-    label: "Kling v3.0 Pro",
-    capability: "video",
-    enabled: true,
-    durationOptions: rangeInclusive(3, 15),
-    defaultDurationSeconds: 3,
-    resolutionOptions: ["720p"],
     defaultResolution: "720p"
   }
 ];
