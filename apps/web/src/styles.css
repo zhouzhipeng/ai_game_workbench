@@ -1364,10 +1364,15 @@ h2 {
     grid-template-columns: 1fr;
   }
 
+  .module01-page-stage {
+    grid-template-columns: 1fr;
+  }
+
   .loop-workflow-stage .loop-top-grid,
   .loop-workflow-stage .loop-step-row,
   .loop-workflow-stage .loop-result-stack,
-  .character-preview-stage .character-preview-layout {
+  .character-preview-stage .character-preview-layout,
+  .module01-page-stage .module01-page-body {
     grid-column: 1 / -1;
   }
 
