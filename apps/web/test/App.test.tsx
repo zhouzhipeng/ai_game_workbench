@@ -860,15 +860,14 @@ describe("App", () => {
     expect(screen.getByRole("region", { name: "跳跃结果" })).toBeInTheDocument();
   });
 
-  it("shows the one-click character page with locked required actions and a progress bar", () => {
+  it("keeps one-click generation focused on launch and progress", () => {
     openSpriteAnimator();
 
-    fireEvent.click(screen.getByRole("button", { name: "一键生成角色" }));
+    fireEvent.click(screen.getByRole("button", { name: "一键生成" }));
 
-    expect(screen.getByRole("heading", { name: "一键生成角色" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "一键生成" })).toBeInTheDocument();
     expect(screen.getByLabelText("一键生成角色名称")).toBeInTheDocument();
     expect(screen.getByLabelText("一键生成角色参考图")).toBeInTheDocument();
-    expect(screen.getByLabelText("一键生成图片风格")).toHaveValue("cel-anime");
     expect(screen.getByLabelText("一键生成步行")).toBeChecked();
     expect(screen.getByLabelText("一键生成步行")).toBeDisabled();
     expect(screen.getByLabelText("一键生成待机")).toBeChecked();
@@ -878,6 +877,9 @@ describe("App", () => {
     expect(screen.getByLabelText("一键生成跳跃")).not.toBeChecked();
     expect(screen.getByRole("progressbar", { name: "一键生成进度" })).toHaveAttribute("aria-valuenow", "0");
     expect(screen.getByText("0%")).toBeInTheDocument();
+    expect(screen.queryByLabelText("一键生成系统提示词")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("一键生成最终图片提示词")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("一键生成图片尺寸")).not.toBeInTheDocument();
   });
 
   it("deletes the selected character folder from the sidebar", async () => {
@@ -1228,41 +1230,39 @@ describe("App", () => {
     });
   });
 
-  it("opens global reference image settings and uploads overrides outside character folders", async () => {
+  it("opens module settings with references grouped under the owning step", async () => {
     openSpriteAnimator();
 
-    expect(screen.getByText("设置")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "参考图设置" }));
+    fireEvent.click(screen.getByRole("button", { name: "模块设置" }));
 
-    expect(screen.getByRole("heading", { name: "参考图设置" })).toBeInTheDocument();
-    expect(screen.getByAltText("赛璐璐画风参考图预览")).toHaveAttribute(
+    expect(screen.getByRole("heading", { name: "模块设置" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "参考图设置" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "基准模板设置" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "步行设置" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "待机设置" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "跑步设置" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "攻击 1 设置" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "跳跃设置" })).toBeInTheDocument();
+    expect(screen.getByAltText("基准模板画风参考图预览")).toHaveAttribute(
       "src",
       "http://127.0.0.1:8787/style-references/cel-anime-south-facing.png"
     );
-    expect(screen.getByAltText("四方向步行参考图预览")).toHaveAttribute(
-      "src",
-      "http://127.0.0.1:8787/direction-references/walk-4dir.png"
-    );
-    expect(screen.getByAltText("四方向待机参考图预览")).toHaveAttribute(
-      "src",
-      "http://127.0.0.1:8787/direction-references/idle-4dir.png"
-    );
-    expect(screen.getByAltText("四方向跑步参考图预览")).toHaveAttribute(
+    expect(screen.queryByAltText("步行参考图预览")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "跑步设置" }));
+    expect(screen.getByAltText("跑步参考图预览")).toHaveAttribute(
       "src",
       "http://127.0.0.1:8787/direction-references/run-4dir.png"
     );
+    expect(screen.getByLabelText("上传并覆盖跑步参考图")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /恢复默认/ })).not.toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText("上传并覆盖赛璐璐画风参考图"), {
-      target: { files: [new File(["style"], "style.png", { type: "image/png" })] }
+    fireEvent.change(screen.getByLabelText("上传并覆盖跑步参考图"), {
+      target: { files: [new File(["run"], "run.png", { type: "image/png" })] }
     });
 
-    await screen.findByText(/赛璐璐画风参考图已全局覆盖/);
-    expect(screen.getByAltText("赛璐璐画风参考图预览")).toHaveAttribute(
-      "src",
-      expect.stringMatching(/http:\/\/127\.0\.0\.1:8787\/style-references\/cel-anime-south-facing\.png\?v=/)
-    );
-    const uploadCall = fetchMock.mock.calls.find(([url]) => String(url).includes("/api/module01/reference-images/style"));
+    await screen.findByText(/跑步参考图已全局覆盖/);
+    const uploadCall = fetchMock.mock.calls.find(([url]) => String(url).includes("/api/module01/reference-images/run"));
     expect(uploadCall?.[1]).toMatchObject({
       method: "POST"
     });

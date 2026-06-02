@@ -287,6 +287,51 @@ h2 {
   gap: 10px;
 }
 
+.module01-settings-layout {
+  display: grid;
+  grid-template-columns: minmax(160px, 220px) minmax(0, 1fr);
+  gap: 14px;
+}
+
+.module01-settings-nav,
+.module01-settings-content,
+.module01-settings-fields {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.module01-settings-nav {
+  align-content: start;
+}
+
+.module01-settings-content h3 {
+  margin: 0;
+}
+
+.module01-settings-references {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.module01-settings-reference {
+  border: 1px solid #384255;
+  border-radius: 8px;
+  background: #10151d;
+  padding: 10px;
+  display: grid;
+  gap: 10px;
+}
+
+.module01-settings-reference img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: contain;
+  background: #0d1219;
+  border-radius: 6px;
+}
+
 @media (max-width: 1120px) {
   .settings-row,
   .settings-row-model {

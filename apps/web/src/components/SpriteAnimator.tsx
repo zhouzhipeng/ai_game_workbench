@@ -59,9 +59,9 @@ import {
   Module01ActionSection,
   Module01AdvancedDetails,
   Module01MediaGrid,
-  Module01PageStage,
-  type Module01StatusItem
+  Module01PageStage
 } from "./module01/Module01Stage";
+import { Module01Settings } from "./module01/Module01Settings";
 import { MODULE01_NAV_ITEMS, MODULE01_PAGE_LABELS, type Module01Page } from "./module01/module01Model";
 
 interface SpriteAnimatorProps {
@@ -2013,41 +2013,313 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
 
         <div className="workflow-stack">
           {activePage === "module-settings" ? (
-            <WorkflowStage
-              title="模块设置"
+            <Module01Settings
               status={referenceSettingsStatus}
-              mediaPanes={[
+              references={[
                 {
-                  title: "赛璐璐画风参考图",
-                  content: <ImagePreview alt="赛璐璐画风参考图预览" preview={builtInStyleReferencePreview} emptyLabel="等待赛璐璐画风参考图" />
+                  group: "base-template",
+                  label: "基准模板画风参考图",
+                  alt: "基准模板画风参考图预览",
+                  previewUrl: builtInStyleReferencePreview?.url ?? toAbsoluteApiUrl(BUILT_IN_STYLE_REFERENCE_URL),
+                  onUpload: (file) => handleReferenceImageUpload("style", file)
                 },
                 {
-                  title: "四方向步行参考图",
-                  content: <ImagePreview alt="四方向步行参考图预览" preview={builtInWalkReferencePreview} emptyLabel="等待四方向步行参考图" />
+                  group: "walk",
+                  label: "步行参考图",
+                  alt: "步行参考图预览",
+                  previewUrl: builtInWalkReferencePreview?.url ?? toAbsoluteApiUrl(BUILT_IN_WALK_REFERENCE_URL),
+                  onUpload: (file) => handleReferenceImageUpload("walk", file)
                 },
                 {
-                  title: "四方向待机参考图",
-                  content: <ImagePreview alt="四方向待机参考图预览" preview={builtInIdleReferencePreview} emptyLabel="等待四方向待机参考图" />
+                  group: "idle",
+                  label: "待机参考图",
+                  alt: "待机参考图预览",
+                  previewUrl: builtInIdleReferencePreview?.url ?? toAbsoluteApiUrl(BUILT_IN_IDLE_REFERENCE_URL),
+                  onUpload: (file) => handleReferenceImageUpload("idle", file)
                 },
                 {
-                  title: "四方向跑步参考图",
-                  content: <ImagePreview alt="四方向跑步参考图预览" preview={builtInRunReferencePreview} emptyLabel="等待四方向跑步参考图" />
+                  group: "run",
+                  label: "跑步参考图",
+                  alt: "跑步参考图预览",
+                  previewUrl: builtInRunReferencePreview?.url ?? toAbsoluteApiUrl(BUILT_IN_RUN_REFERENCE_URL),
+                  onUpload: (file) => handleReferenceImageUpload("run", file)
                 }
               ]}
-              controls={(
-                <div className="control-row">
-                  <ReferenceImageUploadButton kind="style" label="赛璐璐画风参考图" onUpload={handleReferenceImageUpload} />
-                  <ReferenceImageUploadButton kind="walk" label="四方向步行参考图" onUpload={handleReferenceImageUpload} />
-                  <ReferenceImageUploadButton kind="idle" label="四方向待机参考图" onUpload={handleReferenceImageUpload} />
-                  <ReferenceImageUploadButton kind="run" label="四方向跑步参考图" onUpload={handleReferenceImageUpload} />
-                </div>
-              )}
+              panels={[
+                {
+                  group: "base-template",
+                  onSave: handleSaveFirstFrameDraft,
+                  content: (
+                    <div className="module01-settings-fields">
+                      <div className="form-grid">
+                        <label className="field">
+                          图像模型
+                          <select aria-label="设置基准模板图像模型" value={imageModel} onChange={(event) => setImageModel(event.target.value)}>
+                            {imageModels.map((model) => (
+                              <option key={model.id} value={model.id}>{model.label}</option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="field">
+                          图片生成尺寸
+                          <select aria-label="设置基准模板图片生成尺寸" value={imageGenerationSize} onChange={(event) => setImageGenerationSize(Number(event.target.value))}>
+                            {imageGenerationSizeOptions.map((option) => (
+                              <option key={option.size} value={option.size}>{option.label}</option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="field">
+                          图片风格
+                          <select aria-label="设置基准模板图片风格" value={imageStyle} onChange={(event) => setImageStyle(event.target.value)}>
+                            {IMAGE_STYLES.map((style) => (
+                              <option key={style.id} value={style.id}>{style.label}</option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="field">
+                          抠图背景
+                          <input type="color" value={keyColor} onChange={(event) => setKeyColor(event.target.value)} />
+                        </label>
+                      </div>
+                      <div className="prompt-grid">
+                        <label className="field">
+                          系统提示词
+                          <textarea aria-label="设置基准模板系统提示词" value={imageSystemPrompt} rows={7} onChange={(event) => setImageSystemPrompt(event.target.value)} />
+                        </label>
+                        <label className="field">
+                          自定义提示词
+                          <textarea aria-label="设置基准模板自定义提示词" value={imageCustomPrompt} rows={7} onChange={(event) => setImageCustomPrompt(event.target.value)} />
+                        </label>
+                      </div>
+                      <label className="field prompt-final">
+                        最终图片提示词
+                        <textarea aria-label="设置基准模板最终图片提示词" value={currentFinalImagePrompt} rows={5} readOnly />
+                      </label>
+                    </div>
+                  )
+                },
+                {
+                  group: "walk",
+                  onSave: handleSaveDirectionTemplateDraft,
+                  content: (
+                    <div className="module01-settings-fields">
+                      <div className="form-grid">
+                        <label className="field">
+                          四方向图像模型
+                          <select aria-label="设置步行图像模型" value={directionImageModel} onChange={(event) => setDirectionImageModel(event.target.value)}>
+                            {imageModels.map((model) => (
+                              <option key={model.id} value={model.id}>{model.label}</option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="field">
+                          四方向图片生成尺寸
+                          <select aria-label="设置步行图片生成尺寸" value={directionImageGenerationSize} onChange={(event) => setDirectionImageGenerationSize(Number(event.target.value))}>
+                            {directionImageGenerationSizeOptions.map((option) => (
+                              <option key={option.size} value={option.size}>{option.label}</option>
+                            ))}
+                          </select>
+                        </label>
+                      </div>
+                      <div className="prompt-grid">
+                        <label className="field">
+                          步行系统提示词
+                          <textarea aria-label="设置步行系统提示词" value={directionWalkSystemPrompt} rows={7} onChange={(event) => setDirectionWalkSystemPrompt(event.target.value)} />
+                        </label>
+                        <label className="field">
+                          步行自定义提示词
+                          <textarea aria-label="设置步行自定义提示词" value={directionWalkCustomPrompt} rows={7} onChange={(event) => setDirectionWalkCustomPrompt(event.target.value)} />
+                        </label>
+                      </div>
+                      <label className="field prompt-final">
+                        步行最终提示词
+                        <textarea aria-label="设置步行最终提示词" value={finalDirectionWalkPrompt} rows={5} readOnly />
+                      </label>
+                    </div>
+                  )
+                },
+                {
+                  group: "idle",
+                  onSave: handleSaveDirectionTemplateDraft,
+                  content: (
+                    <div className="module01-settings-fields">
+                      <div className="form-grid">
+                        <label className="field">
+                          四方向图像模型
+                          <select aria-label="设置待机图像模型" value={directionImageModel} onChange={(event) => setDirectionImageModel(event.target.value)}>
+                            {imageModels.map((model) => (
+                              <option key={model.id} value={model.id}>{model.label}</option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="field">
+                          四方向图片生成尺寸
+                          <select aria-label="设置待机图片生成尺寸" value={directionImageGenerationSize} onChange={(event) => setDirectionImageGenerationSize(Number(event.target.value))}>
+                            {directionImageGenerationSizeOptions.map((option) => (
+                              <option key={option.size} value={option.size}>{option.label}</option>
+                            ))}
+                          </select>
+                        </label>
+                      </div>
+                      <div className="prompt-grid">
+                        <label className="field">
+                          待机系统提示词
+                          <textarea aria-label="设置待机系统提示词" value={directionIdleSystemPrompt} rows={7} onChange={(event) => setDirectionIdleSystemPrompt(event.target.value)} />
+                        </label>
+                        <label className="field">
+                          待机自定义提示词
+                          <textarea aria-label="设置待机自定义提示词" value={directionIdleCustomPrompt} rows={7} onChange={(event) => setDirectionIdleCustomPrompt(event.target.value)} />
+                        </label>
+                      </div>
+                      <label className="field prompt-final">
+                        待机最终提示词
+                        <textarea aria-label="设置待机最终提示词" value={finalDirectionIdlePrompt} rows={5} readOnly />
+                      </label>
+                    </div>
+                  )
+                },
+                {
+                  group: "run",
+                  onSave: handleSaveVideoDraft,
+                  content: (
+                    <div className="module01-settings-fields">
+                      <VideoDefaultFields
+                        title="设置跑步"
+                        videoModel={videoModel}
+                        videoDurationSeconds={videoDurationSeconds}
+                        videoResolution={videoResolution}
+                        videoDurationOptions={videoDurationOptions}
+                        videoResolutionOptions={videoResolutionOptions}
+                        videoModels={videoModels}
+                        onChangeVideoModel={handleChangeVideoModel}
+                        onChangeVideoDuration={setVideoDurationSeconds}
+                        onChangeVideoResolution={setVideoResolution}
+                      />
+                      <div className="prompt-grid">
+                        <label className="field">
+                          跑步首帧系统提示词
+                          <textarea aria-label="设置跑步首帧系统提示词" value={advancedRunSystemPrompt} rows={7} onChange={(event) => setAdvancedRunSystemPrompt(event.target.value)} />
+                        </label>
+                        <label className="field">
+                          跑步首帧自定义提示词
+                          <textarea aria-label="设置跑步首帧自定义提示词" value={advancedRunCustomPrompt} rows={7} onChange={(event) => setAdvancedRunCustomPrompt(event.target.value)} />
+                        </label>
+                        <label className="field">
+                          跑步视频系统提示词
+                          <textarea aria-label="设置跑步视频系统提示词" value={advancedRunVideoSystemPrompt} rows={7} onChange={(event) => setAdvancedRunVideoSystemPrompt(event.target.value)} />
+                        </label>
+                        <label className="field">
+                          跑步视频自定义提示词
+                          <textarea aria-label="设置跑步视频自定义提示词" value={advancedRunVideoCustomPrompt} rows={7} onChange={(event) => setAdvancedRunVideoCustomPrompt(event.target.value)} />
+                        </label>
+                      </div>
+                    </div>
+                  )
+                },
+                {
+                  group: "attack-1",
+                  onSave: handleSaveVideoDraft,
+                  content: (
+                    <div className="module01-settings-fields">
+                      <VideoDefaultFields
+                        title="设置攻击 1"
+                        videoModel={videoModel}
+                        videoDurationSeconds={videoDurationSeconds}
+                        videoResolution={videoResolution}
+                        videoDurationOptions={videoDurationOptions}
+                        videoResolutionOptions={videoResolutionOptions}
+                        videoModels={videoModels}
+                        onChangeVideoModel={handleChangeVideoModel}
+                        onChangeVideoDuration={setVideoDurationSeconds}
+                        onChangeVideoResolution={setVideoResolution}
+                      />
+                      <div className="form-grid">
+                        <label className="field">
+                          准备缩放比例
+                          <input aria-label="设置攻击 1 准备缩放比例" type="number" min="0.45" max="0.95" step="0.01" value={advancedAttackStartScale} onChange={(event) => setAdvancedAttackStartScale(normalizeAdvancedStartScale(Number(event.target.value), advancedAttackStartScale))} />
+                        </label>
+                      </div>
+                      <div className="prompt-grid">
+                        <label className="field">
+                          攻击视频系统提示词
+                          <textarea aria-label="设置攻击 1 视频系统提示词" value={advancedAttackSystemPrompt} rows={7} onChange={(event) => setAdvancedAttackSystemPrompt(event.target.value)} />
+                        </label>
+                        <label className="field">
+                          攻击视频自定义提示词
+                          <textarea aria-label="设置攻击 1 视频自定义提示词" value={advancedAttackCustomPrompt} rows={7} onChange={(event) => setAdvancedAttackCustomPrompt(event.target.value)} />
+                        </label>
+                        <label className="field">
+                          攻击中间帧自定义提示词
+                          <textarea aria-label="设置攻击 1 中间帧自定义提示词" value={advancedAttackMidframeCustomPrompt} rows={7} onChange={(event) => setAdvancedAttackMidframeCustomPrompt(event.target.value)} />
+                        </label>
+                      </div>
+                    </div>
+                  )
+                },
+                {
+                  group: "jump",
+                  onSave: handleSaveVideoDraft,
+                  content: (
+                    <div className="module01-settings-fields">
+                      <VideoDefaultFields
+                        title="设置跳跃"
+                        videoModel={videoModel}
+                        videoDurationSeconds={videoDurationSeconds}
+                        videoResolution={videoResolution}
+                        videoDurationOptions={videoDurationOptions}
+                        videoResolutionOptions={videoResolutionOptions}
+                        videoModels={videoModels}
+                        onChangeVideoModel={handleChangeVideoModel}
+                        onChangeVideoDuration={setVideoDurationSeconds}
+                        onChangeVideoResolution={setVideoResolution}
+                      />
+                      <div className="form-grid">
+                        <label className="field">
+                          准备缩放比例
+                          <input aria-label="设置跳跃准备缩放比例" type="number" min="0.45" max="0.95" step="0.01" value={advancedJumpStartScale} onChange={(event) => setAdvancedJumpStartScale(normalizeAdvancedStartScale(Number(event.target.value), advancedJumpStartScale))} />
+                        </label>
+                      </div>
+                      <div className="prompt-grid">
+                        <label className="field">
+                          跳跃视频系统提示词
+                          <textarea aria-label="设置跳跃视频系统提示词" value={advancedJumpSystemPrompt} rows={7} onChange={(event) => setAdvancedJumpSystemPrompt(event.target.value)} />
+                        </label>
+                        <label className="field">
+                          跳跃视频自定义提示词
+                          <textarea aria-label="设置跳跃视频自定义提示词" value={advancedJumpCustomPrompt} rows={7} onChange={(event) => setAdvancedJumpCustomPrompt(event.target.value)} />
+                        </label>
+                      </div>
+                    </div>
+                  )
+                },
+                {
+                  group: "character-preview",
+                  onSave: handleSaveVideoDraft,
+                  content: <EmptyPanel label="角色预览默认参数将在预览页生效。" />
+                },
+                {
+                  group: "godot-export",
+                  onSave: handleSaveVideoDraft,
+                  content: (
+                    <div className="form-grid">
+                      <label className="field">
+                        导出尺寸
+                        <select aria-label="设置 Godot 导出尺寸" value={godotExportSize} onChange={(event) => setGodotExportSize(normalizeGodotExportSize(Number(event.target.value)))}>
+                          {GODOT_EXPORT_SIZE_OPTIONS.map((size) => (
+                            <option key={size} value={size}>{size} x {size}</option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
+                  )
+                }
+              ]}
             />
           ) : null}
 
           {activePage === "one-click-character" ? (
             <WorkflowStage
-              title="一键生成角色"
+              title="一键生成"
               status={oneClickStatus}
               mediaPanes={[
                 {
@@ -2070,30 +2342,6 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
                         value={oneClickCharacterName}
                         onChange={(event) => setOneClickCharacterName(event.target.value)}
                       />
-                    </label>
-                    <label className="field">
-                      图片风格
-                      <select aria-label="一键生成图片风格" value={imageStyle} onChange={(event) => setImageStyle(event.target.value)}>
-                        {IMAGE_STYLES.map((style) => (
-                          <option key={style.id} value={style.id}>{style.label}</option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="field">
-                      图像模型
-                      <select aria-label="一键生成图像模型" value={imageModel} onChange={(event) => setImageModel(event.target.value)}>
-                        {imageModels.map((model) => (
-                          <option key={model.id} value={model.id}>{model.label}</option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="field">
-                      图片生成尺寸
-                      <select aria-label="一键生成图片尺寸" value={imageGenerationSize} onChange={(event) => setImageGenerationSize(Number(event.target.value))}>
-                        {imageGenerationSizeOptions.map((option) => (
-                          <option key={option.size} value={option.size}>{option.label}</option>
-                        ))}
-                      </select>
                     </label>
                   </div>
                   <div className="control-row">
@@ -2152,24 +2400,6 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
                     </div>
                   </div>
                 </>
-              )}
-              footer={(
-                <div className="prompt-panel">
-                  <div className="prompt-grid">
-                    <label className="field">
-                      系统提示词
-                      <textarea aria-label="一键生成系统提示词" value={imageSystemPrompt} rows={7} onChange={(event) => setImageSystemPrompt(event.target.value)} />
-                    </label>
-                    <label className="field">
-                      自定义提示词
-                      <textarea aria-label="一键生成自定义提示词" value={imageCustomPrompt} rows={7} onChange={(event) => setImageCustomPrompt(event.target.value)} />
-                    </label>
-                  </div>
-                  <label className="field prompt-final">
-                    最终图片提示词
-                    <textarea aria-label="一键生成最终图片提示词" value={currentFinalImagePrompt} rows={5} readOnly />
-                  </label>
-                </div>
               )}
             />
           ) : null}
@@ -2931,6 +3161,59 @@ function WorkflowStage({
   );
 }
 
+function VideoDefaultFields({
+  title,
+  videoModel,
+  videoDurationSeconds,
+  videoResolution,
+  videoDurationOptions,
+  videoResolutionOptions,
+  videoModels,
+  onChangeVideoModel,
+  onChangeVideoDuration,
+  onChangeVideoResolution
+}: {
+  title: string;
+  videoModel: string;
+  videoDurationSeconds: number;
+  videoResolution: string;
+  videoDurationOptions: readonly number[];
+  videoResolutionOptions: readonly string[];
+  videoModels: readonly VideoModelOption[];
+  onChangeVideoModel: (model: string) => void;
+  onChangeVideoDuration: (duration: number) => void;
+  onChangeVideoResolution: (resolution: string) => void;
+}) {
+  return (
+    <div className="form-grid">
+      <label className="field">
+        视频模型
+        <select aria-label={`${title}视频模型`} value={videoModel} onChange={(event) => onChangeVideoModel(event.target.value)}>
+          {videoModels.map((model) => (
+            <option key={model.id} value={model.id}>{model.label}</option>
+          ))}
+        </select>
+      </label>
+      <label className="field">
+        视频时长
+        <select aria-label={`${title}视频时长`} value={String(videoDurationSeconds)} onChange={(event) => onChangeVideoDuration(Number(event.target.value))}>
+          {videoDurationOptions.map((duration) => (
+            <option key={duration} value={duration}>{duration} 秒</option>
+          ))}
+        </select>
+      </label>
+      <label className="field">
+        视频分辨率
+        <select aria-label={`${title}视频分辨率`} value={videoResolution} onChange={(event) => onChangeVideoResolution(event.target.value)}>
+          {videoResolutionOptions.map((resolution) => (
+            <option key={resolution} value={resolution}>{resolution}</option>
+          ))}
+        </select>
+      </label>
+    </div>
+  );
+}
+
 function AdvancedActionStage({
   actionKind,
   title,
@@ -3257,35 +3540,6 @@ function ImagePreview({ alt, preview, emptyLabel }: { alt: string; preview: Medi
     return <EmptyMedia label="预览加载失败" />;
   }
   return <img alt={alt} src={preview.url} onError={() => setFailedUrl(preview.url)} />;
-}
-
-function ReferenceImageUploadButton({
-  kind,
-  label,
-  onUpload
-}: {
-  kind: Module01ReferenceImageKind;
-  label: string;
-  onUpload: (kind: Module01ReferenceImageKind, file: File) => void | Promise<void>;
-}) {
-  return (
-    <label className="file-picker">
-      <Upload size={16} /> 上传并覆盖{label}
-      <input
-        aria-label={`上传并覆盖${label}`}
-        className="visually-hidden"
-        type="file"
-        accept="image/*"
-        onChange={(event) => {
-          const file = event.target.files?.[0];
-          if (file) {
-            void onUpload(kind, file);
-          }
-          event.currentTarget.value = "";
-        }}
-      />
-    </label>
-  );
 }
 
 function VideoPreview({ label, preview, emptyLabel }: { label: string; preview: MediaPreview | null; emptyLabel: string }) {
