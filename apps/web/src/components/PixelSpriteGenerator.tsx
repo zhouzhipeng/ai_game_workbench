@@ -36,8 +36,8 @@ import {
   USER_API_PROVIDER_SETTINGS_UPDATED_EVENT
 } from "../api/client";
 
-type PixelPage = "base-template" | "walk-template" | "slice" | "character-preview" | "module-settings";
-type PixelSettingsGroup = "base-template" | "walk-template" | "slice" | "character-preview";
+type PixelPage = "base-template" | "walk-template" | "character-preview" | "module-settings";
+type PixelSettingsGroup = "base-template" | "walk-template" | "character-preview";
 type DirectionKey = "down" | "left" | "right" | "up";
 
 interface PixelSpriteGeneratorProps {
@@ -71,17 +71,15 @@ const DEFAULT_IMAGE_MODEL = "apimart/gpt-image-2";
 const DEFAULT_KEY_COLOR = "#00ff00";
 
 const PAGE_LABELS: Record<PixelPage, string> = {
-  "base-template": "角色基准模板",
-  "walk-template": "四方向步行图",
-  slice: "一键处理",
+  "base-template": "基准模板",
+  "walk-template": "步行",
   "character-preview": "角色预览",
   "module-settings": "模块设置"
 };
 
 const SETTINGS_GROUPS: Array<{ id: PixelSettingsGroup; label: string; saveLabel: string }> = [
   { id: "base-template", label: "基准模板设置", saveLabel: "保存基准模板设置" },
-  { id: "walk-template", label: "步行图设置", saveLabel: "保存步行图设置" },
-  { id: "slice", label: "一键处理设置", saveLabel: "保存一键处理设置" },
+  { id: "walk-template", label: "步行设置", saveLabel: "保存步行设置" },
   { id: "character-preview", label: "角色预览设置", saveLabel: "保存角色预览设置" }
 ];
 const DEFAULT_SETTINGS_GROUP = SETTINGS_GROUPS[0] as { id: PixelSettingsGroup; label: string; saveLabel: string };
@@ -615,13 +613,10 @@ export function PixelSpriteGenerator({ onBack }: PixelSpriteGeneratorProps) {
 
         <div className="nav-group-title">像素角色生成</div>
         <NavButton active={activePage === "base-template"} icon={<WandSparkles size={18} />} onClick={() => setActivePage("base-template")}>
-          角色基准模板
+          基准模板
         </NavButton>
         <NavButton active={activePage === "walk-template"} icon={<ImagePlus size={18} />} onClick={() => setActivePage("walk-template")}>
-          四方向步行图
-        </NavButton>
-        <NavButton active={activePage === "slice"} icon={<Scissors size={18} />} onClick={() => setActivePage("slice")}>
-          一键处理
+          步行
         </NavButton>
         <NavButton active={activePage === "character-preview"} icon={<Gamepad2 size={18} />} onClick={() => setActivePage("character-preview")}>
           角色预览
@@ -675,7 +670,7 @@ export function PixelSpriteGenerator({ onBack }: PixelSpriteGeneratorProps) {
 
           {activePage === "walk-template" ? (
             <WorkflowStage
-              title="四方向步行图"
+              title="步行"
               status={walkStatus}
               mediaPanes={[
                 {
@@ -699,27 +694,6 @@ export function PixelSpriteGenerator({ onBack }: PixelSpriteGeneratorProps) {
                       <WandSparkles size={16} /> {isGeneratingWalk ? "生成中" : "生成四方向步行图"}
                     </button>
                   </div>
-                </>
-              )}
-            />
-          ) : null}
-
-          {activePage === "slice" ? (
-            <WorkflowStage
-              title="一键处理"
-              status={sliceStatus}
-              mediaPanes={[
-                {
-                  title: "idle 帧",
-                  content: <FramePreviewGrid frames={idleFrames} emptyLabel="等待 idle 切帧结果" />
-                },
-                {
-                  title: "walk 帧",
-                  content: <FramePreviewGrid frames={walkFrames} emptyLabel="等待 walk 切帧结果" />
-                }
-              ]}
-              controls={(
-                <>
                   <div className="control-row">
                     <button className="tool-button" type="button" disabled={isProcessing} onClick={() => void handleSlice("idle")}>
                       <Scissors size={16} /> 处理 idle 帧
@@ -730,6 +704,16 @@ export function PixelSpriteGenerator({ onBack }: PixelSpriteGeneratorProps) {
                     <button aria-label="执行一键处理" className="tool-button primary" type="button" disabled={isProcessing} onClick={() => void handleSliceAll()}>
                       <Scissors size={16} /> {isProcessing ? "处理中" : "一键处理"}
                     </button>
+                  </div>
+                  <div className="stage-media-grid">
+                    <div className="media-pane">
+                      <div className="media-pane-title">idle 帧</div>
+                      <FramePreviewGrid frames={idleFrames} emptyLabel="等待 idle 处理结果" />
+                    </div>
+                    <div className="media-pane">
+                      <div className="media-pane-title">walk 帧</div>
+                      <FramePreviewGrid frames={walkFrames} emptyLabel="等待 walk 处理结果" />
+                    </div>
                   </div>
                 </>
               )}
@@ -939,26 +923,23 @@ function PixelModuleSettings({
                     <textarea aria-label="设置步行图最终提示词" rows={5} value={draft.walkPrompt} readOnly />
                   </label>
                 </SettingsSubsection>
+                <SettingsSubsection title="处理设置">
+                  <div className="form-grid">
+                    <label className="field">
+                      键色容差
+                      <input aria-label="设置一键处理键色容差" type="number" min={0} max={255} value={draft.tolerance} onChange={(event) => onChangeDraft("tolerance", clampNumber(Number(event.target.value), 0, 255, draft.tolerance))} />
+                    </label>
+                    <label className="field">
+                      输出帧宽
+                      <input aria-label="设置一键处理输出帧宽" type="number" min={16} max={512} value={draft.outputFrameWidth} onChange={(event) => onChangeDraft("outputFrameWidth", clampNumber(Number(event.target.value), 16, 512, draft.outputFrameWidth))} />
+                    </label>
+                    <label className="field">
+                      输出帧高
+                      <input aria-label="设置一键处理输出帧高" type="number" min={16} max={512} value={draft.outputFrameHeight} onChange={(event) => onChangeDraft("outputFrameHeight", clampNumber(Number(event.target.value), 16, 512, draft.outputFrameHeight))} />
+                    </label>
+                  </div>
+                </SettingsSubsection>
               </>
-            ) : null}
-
-            {activeGroup === "slice" ? (
-              <SettingsSubsection title="处理设置">
-                <div className="form-grid">
-                  <label className="field">
-                    键色容差
-                    <input aria-label="设置一键处理键色容差" type="number" min={0} max={255} value={draft.tolerance} onChange={(event) => onChangeDraft("tolerance", clampNumber(Number(event.target.value), 0, 255, draft.tolerance))} />
-                  </label>
-                  <label className="field">
-                    输出帧宽
-                    <input aria-label="设置一键处理输出帧宽" type="number" min={16} max={512} value={draft.outputFrameWidth} onChange={(event) => onChangeDraft("outputFrameWidth", clampNumber(Number(event.target.value), 16, 512, draft.outputFrameWidth))} />
-                  </label>
-                  <label className="field">
-                    输出帧高
-                    <input aria-label="设置一键处理输出帧高" type="number" min={16} max={512} value={draft.outputFrameHeight} onChange={(event) => onChangeDraft("outputFrameHeight", clampNumber(Number(event.target.value), 16, 512, draft.outputFrameHeight))} />
-                  </label>
-                </div>
-              </SettingsSubsection>
             ) : null}
 
             {activeGroup === "character-preview" ? (

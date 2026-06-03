@@ -719,11 +719,13 @@ describe("App", () => {
 
     expect(screen.getByRole("heading", { name: "像素角色制作" })).toBeInTheDocument();
     expect(await screen.findByLabelText("当前像素角色")).toHaveValue("pixel-hero");
-    expect(screen.getByRole("button", { name: "角色基准模板" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "四方向步行图" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "一键处理" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "基准模板" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "步行" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "角色预览" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "模块设置" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "角色基准模板" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "四方向步行图" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "一键处理" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "切帧" })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "删除像素角色 pixel-hero" }));
@@ -750,14 +752,13 @@ describe("App", () => {
       && String((init as RequestInit).body).includes('"actionId":"idle"')
     )).toBe(true));
 
-    fireEvent.click(screen.getByRole("button", { name: "四方向步行图" }));
+    fireEvent.click(screen.getByRole("button", { name: "步行" }));
     fireEvent.click(screen.getByRole("button", { name: "生成四方向步行图" }));
     await waitFor(() => expect(fetchMock.mock.calls.some(([url, init]) =>
       String(url).endsWith("/api/module02/generation/sprite-sheet")
       && String((init as RequestInit).body).includes('"actionId":"walk"')
     )).toBe(true));
 
-    fireEvent.click(screen.getByRole("button", { name: "一键处理" }));
     fireEvent.click(screen.getByRole("button", { name: "执行一键处理" }));
 
     await waitFor(() => {
@@ -789,8 +790,9 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "模块设置" }));
     expect(screen.getByRole("heading", { name: "模块设置" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "基准模板设置" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "步行图设置" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "一键处理设置" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "步行设置" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "步行图设置" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "一键处理设置" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "角色预览设置" })).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText("设置基准模板图像模型"), {
@@ -805,7 +807,7 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "保存基准模板设置" }));
     expect(screen.getByText("基准模板设置已保存。")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "角色基准模板" }));
+    fireEvent.click(screen.getByRole("button", { name: "基准模板" }));
     fireEvent.click(screen.getByRole("button", { name: "生成角色基准模板" }));
     await waitFor(() => {
       const generationCall = fetchMock.mock.calls
@@ -820,13 +822,13 @@ describe("App", () => {
     });
 
     fireEvent.click(screen.getByRole("button", { name: "模块设置" }));
-    fireEvent.click(screen.getByRole("button", { name: "步行图设置" }));
+    fireEvent.click(screen.getByRole("button", { name: "步行设置" }));
     fireEvent.change(screen.getByLabelText("设置步行图提示词"), {
       target: { value: "walk prompt from settings" }
     });
-    fireEvent.click(screen.getByRole("button", { name: "保存步行图设置" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存步行设置" }));
 
-    fireEvent.click(screen.getByRole("button", { name: "四方向步行图" }));
+    fireEvent.click(screen.getByRole("button", { name: "步行" }));
     fireEvent.click(screen.getByRole("button", { name: "生成四方向步行图" }));
     await waitFor(() => {
       const generationCall = fetchMock.mock.calls
@@ -840,7 +842,6 @@ describe("App", () => {
     });
 
     fireEvent.click(screen.getByRole("button", { name: "模块设置" }));
-    fireEvent.click(screen.getByRole("button", { name: "一键处理设置" }));
     fireEvent.change(screen.getByLabelText("设置一键处理键色容差"), {
       target: { value: "12" }
     });
@@ -850,9 +851,9 @@ describe("App", () => {
     fireEvent.change(screen.getByLabelText("设置一键处理输出帧高"), {
       target: { value: "144" }
     });
-    fireEvent.click(screen.getByRole("button", { name: "保存一键处理设置" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存步行设置" }));
 
-    fireEvent.click(screen.getByRole("button", { name: "一键处理" }));
+    fireEvent.click(screen.getByRole("button", { name: "步行" }));
     fireEvent.click(screen.getByRole("button", { name: "执行一键处理" }));
     await waitFor(() => {
       const processingCall = fetchMock.mock.calls
