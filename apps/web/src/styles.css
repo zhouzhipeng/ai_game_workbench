@@ -260,6 +260,8 @@ h2 {
   display: grid;
   grid-template-columns: minmax(160px, 220px) minmax(0, 1fr);
   gap: 14px;
+  width: 100%;
+  min-width: 0;
 }
 
 .module01-settings-nav,
@@ -267,6 +269,7 @@ h2 {
 .module01-settings-fields {
   display: grid;
   gap: 12px;
+  width: 100%;
   min-width: 0;
 }
 
@@ -1383,11 +1386,16 @@ h2 {
     grid-template-columns: 1fr;
   }
 
+  .module01-settings-center {
+    grid-template-columns: 1fr;
+  }
+
   .loop-workflow-stage .loop-top-grid,
   .loop-workflow-stage .loop-step-row,
   .loop-workflow-stage .loop-result-stack,
   .character-preview-stage .character-preview-layout,
-  .module01-page-stage .module01-page-body {
+  .module01-page-stage .module01-page-body,
+  .module01-settings-center .module01-settings-layout {
     grid-column: 1 / -1;
   }
 

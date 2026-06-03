@@ -1,5 +1,7 @@
 import "@testing-library/jest-dom/vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createFirstFrameGeneration,
@@ -16,6 +18,7 @@ const characterBase = "/characters/hero";
 const pixelCharacterBase = "/module02/characters/pixel-hero";
 const APIMART_IMAGE_MODEL = "apimart/gpt-image-2";
 const NANO_IMAGE_MODEL = "google/gemini-3.1-flash-image-preview";
+const stylesPath = join(process.cwd(), "src", "styles.css");
 let videoStatusPayload: unknown;
 let module01WorkflowConfigPayload: unknown;
 let advancedCharacterAssetsPayload: unknown;
@@ -689,6 +692,13 @@ function openPixelSpriteGenerator() {
 }
 
 describe("App", () => {
+  it("lets shared module settings content span the available stage width", () => {
+    const styles = readFileSync(stylesPath, "utf8");
+
+    expect(styles).toMatch(/\.module01-settings-layout\s*\{[^}]*width:\s*100%;/s);
+    expect(styles).toMatch(/\.module01-settings-content,\s*\.module01-settings-fields\s*\{[^}]*width:\s*100%;/s);
+  });
+
   it("opens API settings and saves the selected APIMart key locally", async () => {
     render(<App />);
 
