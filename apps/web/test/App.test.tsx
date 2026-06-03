@@ -953,21 +953,15 @@ describe("App", () => {
     expect(screen.getByRole("heading", { name: "基准模板" })).toBeInTheDocument();
     expect(screen.queryByText("画风参考")).not.toBeInTheDocument();
     expect(screen.getByText("角色参考")).toBeInTheDocument();
-    expect(screen.getByLabelText(/图像模型/i)).toHaveValue(APIMART_IMAGE_MODEL);
+    expect(screen.queryByLabelText(/图像模型/i)).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/视频模型/i)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /一键处理/i })).not.toBeInTheDocument();
     expect(screen.queryByAltText("赛璐璐画风参考图预览")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("上传画风参考图")).not.toBeInTheDocument();
-    expect(screen.getByRole("option", { name: "local GPT image2" })).toHaveValue("local/gpt-image-2");
-    expect(screen.getByRole("option", { name: /Nano Banana 2/i })).toHaveValue(NANO_IMAGE_MODEL);
-    const imageStyleSelect = screen.getByLabelText("图片风格");
-    expect(imageStyleSelect).toHaveValue("cel-anime");
-    expect(within(imageStyleSelect).getAllByRole("option")).toHaveLength(1);
-    expect(within(imageStyleSelect).getByRole("option", { name: "赛璐璐风格" })).toBeInTheDocument();
-    expect((screen.getByLabelText(/系统提示词/i) as HTMLTextAreaElement).value).toContain("使用第一张图作为画风");
-    expect((screen.getByLabelText(/系统提示词/i) as HTMLTextAreaElement).value).toContain("使用第二张图作为角色身份参考");
+    expect(screen.queryByLabelText("图片风格")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/系统提示词/i)).not.toBeInTheDocument();
     expect(screen.getByLabelText(/自定义提示词/i)).toHaveValue("");
-    expect(screen.getByLabelText(/最终图片提示词/i)).toHaveAttribute("readonly");
+    expect(screen.queryByLabelText(/最终图片提示词/i)).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/图片风格提示词/i)).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/图片约束提示词/i)).not.toBeInTheDocument();
     expect(screen.queryByLabelText("朝向")).not.toBeInTheDocument();
@@ -976,7 +970,7 @@ describe("App", () => {
     expect(screen.queryByLabelText("API provider settings")).not.toBeInTheDocument();
     expect(screen.queryByRole("textbox", { name: /公网资源地址/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /保存当前配置/i })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /保存基准模板配置/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /保存基准模板配置/i })).not.toBeInTheDocument();
   });
 
   it("uses aligned section labels for action pages", () => {
@@ -1299,9 +1293,11 @@ describe("App", () => {
     expect(screen.getByText("步行 2x2 基准")).toBeInTheDocument();
     expect(screen.queryByText("跑步参考")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /生成跑步首帧/i })).toBeInTheDocument();
-    expect(screen.getByLabelText("跑步首帧系统提示词")).toBeInTheDocument();
-    expect(screen.getByLabelText("跑步视频系统提示词")).toBeInTheDocument();
-    expect(screen.getByLabelText("跑步视频最终提示词")).toBeInTheDocument();
+    expect(screen.getByLabelText("跑步首帧自定义提示词")).toBeInTheDocument();
+    expect(screen.getByLabelText("跑步视频自定义提示词")).toBeInTheDocument();
+    expect(screen.queryByLabelText("跑步首帧系统提示词")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("跑步视频系统提示词")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("跑步视频最终提示词")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "攻击 1" }));
     expect(screen.getByRole("heading", { name: "攻击 1" })).toBeInTheDocument();
@@ -1310,22 +1306,29 @@ describe("App", () => {
     expect(screen.queryByLabelText("上传攻击四方向1参考图")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /生成攻击中间帧/i })).toBeInTheDocument();
     expect(screen.getByLabelText("攻击中间帧自定义提示词")).toBeInTheDocument();
-    expect(screen.getByLabelText("攻击 1 准备缩放比例")).toHaveValue(0.74);
+    expect(screen.queryByLabelText("攻击 1 准备缩放比例")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("攻击中间帧图像模型")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "跳跃" }));
     expect(screen.getByRole("heading", { name: "跳跃" })).toBeInTheDocument();
     expect(screen.queryByText("待机四方向基准")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /准备跳跃起始帧/i })).toBeInTheDocument();
-    expect(screen.getByLabelText("跳跃准备缩放比例")).toHaveValue(0.78);
+    expect(screen.getByLabelText("视频自定义提示词")).toBeInTheDocument();
+    expect(screen.queryByLabelText("跳跃准备缩放比例")).not.toBeInTheDocument();
   });
 
   it("passes the generated attack middle frame when submitting attack video generation", async () => {
     openSpriteAnimator();
 
-    fireEvent.click(screen.getByRole("button", { name: "攻击 1" }));
-    fireEvent.change(screen.getByLabelText("攻击 1 准备缩放比例"), {
+    fireEvent.click(screen.getByRole("button", { name: "模块设置" }));
+    fireEvent.click(screen.getByRole("button", { name: "攻击 1 设置" }));
+    fireEvent.change(screen.getByLabelText("设置攻击 1 准备缩放比例"), {
       target: { value: "0.62" }
     });
+    fireEvent.click(screen.getByRole("button", { name: "保存攻击 1 设置" }));
+    await screen.findByText(/视频配置已保存到后端/);
+
+    fireEvent.click(screen.getByRole("button", { name: "攻击 1" }));
     fireEvent.click(screen.getByRole("button", { name: /准备攻击起始帧/i }));
     await screen.findByAltText("攻击 1 起始帧预览");
 
@@ -1393,6 +1396,8 @@ describe("App", () => {
       "src",
       "http://127.0.0.1:8787/style-references/cel-anime-south-facing.png"
     );
+    expect(screen.getByLabelText("上传并覆盖赛璐璐风格画风参考图")).toBeInTheDocument();
+    expect(screen.queryByLabelText("上传并覆盖基准模板画风参考图")).not.toBeInTheDocument();
     expect(screen.queryByAltText("步行参考图预览")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "跑步设置" }));
@@ -1445,23 +1450,22 @@ describe("App", () => {
     expect(screen.queryByAltText("待机参考图预览")).not.toBeInTheDocument();
     expect(screen.queryByAltText("跑步参考图预览")).not.toBeInTheDocument();
     expect(screen.getByLabelText("上传角色基准模板")).toBeInTheDocument();
-    expect(screen.getByLabelText(/图像模型/i)).toHaveValue(APIMART_IMAGE_MODEL);
-    expect(screen.getByLabelText(/图片尺寸/i)).toHaveValue("1024");
-    expect((screen.getByLabelText("步行系统提示词") as HTMLTextAreaElement).value).toContain("动作状态：步行循环关键帧");
+    expect(screen.queryByLabelText(/图像模型/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/图片尺寸/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("步行系统提示词")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("步行自定义提示词")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /生成步行 2x2/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /一键处理/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /保存步行配置/i })).toBeInTheDocument();
-    expect(screen.getByLabelText(/视频模型/i)).toHaveValue("bytedance/seedance-2.0");
-    expect(screen.getByLabelText(/视频时长/i)).toHaveValue("4");
-    expect(screen.getByLabelText(/视频分辨率/i)).toHaveValue("720p");
-    expect(within(screen.getByLabelText(/视频分辨率/i)).getByRole("option", { name: "1080p" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /保存步行配置/i })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/视频模型/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/视频时长/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/视频分辨率/i)).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/视频视角/i)).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/动作模板/i)).not.toBeInTheDocument();
-    expect((screen.getByLabelText("视频系统提示词") as HTMLTextAreaElement).value).toContain("参考输入图像中的 2x2 四宫格角色");
-    expect((screen.getByLabelText("视频系统提示词") as HTMLTextAreaElement).value).toContain("每个格子里的角色都独立做原地走路循环动画");
+    expect(screen.queryByLabelText("视频系统提示词")).not.toBeInTheDocument();
     expect(screen.getByLabelText("视频自定义提示词")).toHaveValue("");
-    expect(screen.getByLabelText("最终视频提示词")).toHaveAttribute("readonly");
-    expect(screen.getByRole("button", { name: /保存视频配置/i })).toBeInTheDocument();
+    expect(screen.queryByLabelText("最终视频提示词")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /保存视频配置/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "2 切四方向并中心化" })).not.toBeInTheDocument();
     expect(screen.queryByLabelText("帧时间轴")).not.toBeInTheDocument();
 
@@ -1470,11 +1474,11 @@ describe("App", () => {
     expect(screen.getByText("步行 2x2 基准")).toBeInTheDocument();
     expect(screen.queryByText("待机参考")).not.toBeInTheDocument();
     expect(screen.getByText("待机 2x2 输出")).toBeInTheDocument();
-    expect((screen.getByLabelText("待机系统提示词") as HTMLTextAreaElement).value).toContain("使用第一张图作为角色四方向步行参考图");
-    expect((screen.getByLabelText("待机系统提示词") as HTMLTextAreaElement).value).toContain("位置与第一张图对应方向对齐");
+    expect(screen.queryByLabelText("待机系统提示词")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("待机自定义提示词")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /生成待机 2x2/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /一键处理/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /保存待机配置/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /保存待机配置/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "待机结果" })).not.toBeInTheDocument();
     expect(screen.queryByText("待机预览与导出")).not.toBeInTheDocument();
   });
@@ -1488,23 +1492,26 @@ describe("App", () => {
     openSpriteAnimator();
 
     expect(screen.queryByLabelText(/OpenRouter 密钥/i)).not.toBeInTheDocument();
-    expect(screen.getByLabelText(/图像模型/i)).toHaveValue(APIMART_IMAGE_MODEL);
+    expect(screen.queryByLabelText(/图像模型/i)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "模块设置" }));
+    expect(screen.getByLabelText("设置基准模板图像模型")).toHaveValue(APIMART_IMAGE_MODEL);
   });
 
   it("shows model-specific first-frame size choices and submits the selected size", async () => {
     openSpriteAnimator();
 
-    const sizeSelect = screen.getByLabelText(/图片生成尺寸/i);
+    fireEvent.click(screen.getByRole("button", { name: "模块设置" }));
+    const sizeSelect = screen.getByLabelText("设置基准模板图片生成尺寸");
     expect(sizeSelect).toHaveValue("1024");
     expect(within(sizeSelect).getByRole("option", { name: /1024 x 1024/ })).toBeInTheDocument();
     expect(within(sizeSelect).getByRole("option", { name: /2048 x 2048/ })).toBeInTheDocument();
     expect(within(sizeSelect).getByRole("option", { name: /2880 x 2880/ })).toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText(/图像模型/i), {
+    fireEvent.change(screen.getByLabelText("设置基准模板图像模型"), {
       target: { value: NANO_IMAGE_MODEL }
     });
 
-    const nanoSizeSelect = screen.getByLabelText(/图片生成尺寸/i);
+    const nanoSizeSelect = screen.getByLabelText("设置基准模板图片生成尺寸");
     expect(nanoSizeSelect).toHaveValue("1024");
     expect(within(nanoSizeSelect).getByRole("option", { name: /512 x 512/ })).toBeInTheDocument();
     expect(within(nanoSizeSelect).getByRole("option", { name: /4096 x 4096/ })).toBeInTheDocument();
@@ -1512,6 +1519,7 @@ describe("App", () => {
     fireEvent.change(nanoSizeSelect, {
       target: { value: "4096" }
     });
+    fireEvent.click(screen.getByRole("button", { name: "基准模板" }));
     fireEvent.click(screen.getByRole("button", { name: /生成基准模板/i }));
 
     await screen.findByAltText("基准模板输出预览");
@@ -1528,20 +1536,21 @@ describe("App", () => {
   it("combines editable first-frame system and custom prompts", async () => {
     openSpriteAnimator();
 
-    fireEvent.change(screen.getByLabelText(/系统提示词/i), {
+    fireEvent.click(screen.getByRole("button", { name: "模块设置" }));
+    fireEvent.change(screen.getByLabelText("设置基准模板系统提示词"), {
       target: { value: "系统固定规则：赛璐璐风格，第一张图控制镜头，第二张图控制角色。纯色 #00ff00 背景。" }
     });
-    fireEvent.change(screen.getByLabelText(/自定义提示词/i), {
+    fireEvent.change(screen.getByLabelText("设置基准模板自定义提示词"), {
       target: { value: "怯生生走路第一帧，左脚向画面下方小幅迈出。" }
     });
 
-    const finalPrompt = screen.getByLabelText(/最终图片提示词/i);
+    const finalPrompt = screen.getByLabelText("设置基准模板最终图片提示词");
     expect((finalPrompt as HTMLTextAreaElement).value).toBe(
       "系统固定规则：赛璐璐风格，第一张图控制镜头，第二张图控制角色。纯色 #00ff00 背景。\n\n" +
       "怯生生走路第一帧，左脚向画面下方小幅迈出。"
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /保存基准模板配置/i }));
+    fireEvent.click(screen.getByRole("button", { name: "保存基准模板设置" }));
     const savedDraft = JSON.parse(String(localStorage.getItem("ai-game-workbench.sprite-animator.workflow.v5")));
     expect(savedDraft).toMatchObject({
       imageStyle: "cel-anime",
@@ -1553,12 +1562,16 @@ describe("App", () => {
   it("submits the current first-frame custom prompt when generating", async () => {
     openSpriteAnimator();
 
-    fireEvent.change(screen.getByLabelText(/图像模型/i), {
+    fireEvent.click(screen.getByRole("button", { name: "模块设置" }));
+    fireEvent.change(screen.getByLabelText("设置基准模板图像模型"), {
       target: { value: "local/gpt-image-2" }
     });
-    fireEvent.change(screen.getByLabelText(/系统提示词/i), {
+    fireEvent.change(screen.getByLabelText("设置基准模板系统提示词"), {
       target: { value: "系统提示词：只参考第一张图的镜头。" }
     });
+    fireEvent.click(screen.getByRole("button", { name: "保存基准模板设置" }));
+    await screen.findByText(/基准模板配置已保存到后端/);
+    fireEvent.click(screen.getByRole("button", { name: "基准模板" }));
     fireEvent.change(screen.getByLabelText(/自定义提示词/i), {
       target: { value: "自定义提示词：角色低头怯生生，左脚向画面下方迈出。" }
     });
@@ -1582,9 +1595,13 @@ describe("App", () => {
     openSpriteAnimator();
 
     await screen.findByAltText("角色参考图预览");
-    fireEvent.change(screen.getByLabelText(/图像模型/i), {
+    fireEvent.click(screen.getByRole("button", { name: "模块设置" }));
+    fireEvent.change(screen.getByLabelText("设置基准模板图像模型"), {
       target: { value: "local/gpt-image-2" }
     });
+    fireEvent.click(screen.getByRole("button", { name: "保存基准模板设置" }));
+    await screen.findByText(/基准模板配置已保存到后端/);
+    fireEvent.click(screen.getByRole("button", { name: "基准模板" }));
     fireEvent.click(screen.getByRole("button", { name: /生成基准模板/i }));
 
     let firstFrameCall: Parameters<typeof fetchMock>[0] | undefined;
@@ -1614,7 +1631,7 @@ describe("App", () => {
     fireEvent.change(screen.getByLabelText("步行自定义提示词"), {
       target: { value: "步行幅度轻微，保持角色害羞气质。" }
     });
-    expect((screen.getByLabelText("步行最终提示词") as HTMLTextAreaElement).value).toContain("步行幅度轻微");
+    expect(screen.queryByLabelText("步行最终提示词")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /生成步行 2x2/i }));
     await screen.findByAltText("步行 2x2 输出预览");
@@ -1627,7 +1644,7 @@ describe("App", () => {
     fireEvent.change(screen.getByLabelText("待机自定义提示词"), {
       target: { value: "待机更安静，手臂自然下垂。" }
     });
-    expect((screen.getByLabelText("待机最终提示词") as HTMLTextAreaElement).value).toContain("待机更安静");
+    expect(screen.queryByLabelText("待机最终提示词")).not.toBeInTheDocument();
     await waitFor(() => expect(screen.getByRole("button", { name: /生成待机 2x2/i })).toBeEnabled());
 
     fireEvent.click(screen.getByRole("button", { name: /生成待机 2x2/i }));
@@ -1656,14 +1673,6 @@ describe("App", () => {
       prompt: expect.stringContaining("待机更安静")
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /保存待机配置/i }));
-    const savedDraft = JSON.parse(String(localStorage.getItem("ai-game-workbench.sprite-animator.workflow.v5")));
-    expect(savedDraft).toMatchObject({
-      directionImageModel: APIMART_IMAGE_MODEL,
-      directionImageGenerationSize: 1024,
-      directionIdleCustomPrompt: "待机更安静，手臂自然下垂。",
-      directionWalkCustomPrompt: "步行幅度轻微，保持角色害羞气质。"
-    });
   });
 
   it("runs first-frame processing, video polling, and frame processing through the visible workflow", async () => {
@@ -1694,12 +1703,17 @@ describe("App", () => {
     expect(firstFrameBody).not.toHaveProperty("styleReferenceImageDataUrl");
     expect(firstFrameBody.referenceImageDataUrl).toMatch(/^data:image\/png;base64,/);
 
-    fireEvent.change(screen.getByLabelText(/视频模型/i), {
+    fireEvent.click(screen.getByRole("button", { name: "模块设置" }));
+    fireEvent.click(screen.getByRole("button", { name: "步行设置" }));
+    fireEvent.change(screen.getByLabelText("设置步行视频模型"), {
       target: { value: "apimart/seedance-2.0" }
     });
-    expect(screen.getByLabelText(/视频时长/i)).toHaveValue("4");
-    expect(screen.getByLabelText(/视频分辨率/i)).toHaveValue("720p");
-    expect(within(screen.getByLabelText(/视频分辨率/i)).getByRole("option", { name: "1080p" })).toBeInTheDocument();
+    expect(screen.getByLabelText("设置步行视频时长")).toHaveValue("4");
+    expect(screen.getByLabelText("设置步行视频分辨率")).toHaveValue("720p");
+    expect(within(screen.getByLabelText("设置步行视频分辨率")).getByRole("option", { name: "1080p" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "保存步行设置" }));
+    await screen.findByText(/视频配置已保存到后端/);
+    fireEvent.click(screen.getByRole("button", { name: "步行" }));
 
     fireEvent.click(screen.getByRole("button", { name: /提交视频任务/i }));
 
@@ -1737,6 +1751,25 @@ describe("App", () => {
 
   it("allows video generation to upload a first frame directly in the second stage", async () => {
     openSpriteAnimator();
+    fireEvent.click(screen.getByRole("button", { name: "模块设置" }));
+    fireEvent.click(screen.getByRole("button", { name: "步行设置" }));
+    fireEvent.change(screen.getByLabelText("设置步行视频模型"), {
+      target: { value: "apimart/seedance-2.0" }
+    });
+    const durationSelect = screen.getByLabelText("设置步行视频时长");
+    expect(durationSelect).toHaveValue("4");
+    expect([...durationSelect.querySelectorAll("option")].map((option) => option.value)).toContain("5");
+    const resolutionSelect = screen.getByLabelText("设置步行视频分辨率");
+    expect(resolutionSelect).toHaveValue("720p");
+    expect([...resolutionSelect.querySelectorAll("option")].map((option) => option.value)).toContain("1080p");
+    fireEvent.change(durationSelect, {
+      target: { value: "5" }
+    });
+    fireEvent.change(resolutionSelect, {
+      target: { value: "1080p" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "保存步行设置" }));
+    await screen.findByText(/视频配置已保存到后端/);
     fireEvent.click(screen.getByRole("button", { name: "步行" }));
 
     const file = new File(["direct-video-frame"], "direct-first-frame.png", { type: "image/png" });
@@ -1747,21 +1780,6 @@ describe("App", () => {
     await screen.findByText(/步行图片已保存/);
     expect(screen.getByAltText("步行 2x2 输出预览")).toHaveAttribute("src", "blob:uploaded-input-preview");
 
-    fireEvent.change(screen.getByLabelText(/视频模型/i), {
-      target: { value: "apimart/seedance-2.0" }
-    });
-    const durationSelect = screen.getByLabelText(/视频时长/i);
-    expect(durationSelect).toHaveValue("4");
-    expect([...durationSelect.querySelectorAll("option")].map((option) => option.value)).toContain("5");
-    const resolutionSelect = screen.getByLabelText(/视频分辨率/i);
-    expect(resolutionSelect).toHaveValue("720p");
-    expect([...resolutionSelect.querySelectorAll("option")].map((option) => option.value)).toContain("1080p");
-    fireEvent.change(durationSelect, {
-      target: { value: "5" }
-    });
-    fireEvent.change(resolutionSelect, {
-      target: { value: "1080p" }
-    });
     fireEvent.click(screen.getByRole("button", { name: /提交视频任务/i }));
 
     await screen.findByText(/视频已下载到 storage\/characters\/hero\/base-character\/walk-video\/source.mp4/);
@@ -1886,16 +1904,18 @@ describe("App", () => {
   it("saves edited Chinese prompts and restores them when the module reopens", async () => {
     openSpriteAnimator();
 
-    fireEvent.change(screen.getByLabelText("自定义提示词"), {
+    fireEvent.click(screen.getByRole("button", { name: "模块设置" }));
+    fireEvent.change(screen.getByLabelText("设置基准模板自定义提示词"), {
       target: { value: "已保存的高清2D骑士首帧" }
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /保存基准模板配置/i }));
+    fireEvent.click(screen.getByRole("button", { name: "保存基准模板设置" }));
     await screen.findByText(/基准模板配置已保存到后端/);
 
     cleanup();
     openSpriteAnimator();
 
+    fireEvent.click(screen.getByRole("button", { name: "基准模板" }));
     expect(screen.getByLabelText("自定义提示词")).toHaveValue("已保存的高清2D骑士首帧");
     expect(screen.queryByText("https://darn-skittle-unwoven.ngrok-free.dev")).not.toBeInTheDocument();
   });
@@ -1922,20 +1942,21 @@ describe("App", () => {
 
     openSpriteAnimator();
 
+    fireEvent.click(screen.getByRole("button", { name: "模块设置" }));
     await waitFor(() => {
-      expect(screen.getByLabelText("系统提示词")).toHaveValue("后端系统提示词：第一张图控制画风，第二张图控制角色。");
+      expect(screen.getByLabelText("设置基准模板系统提示词")).toHaveValue("后端系统提示词：第一张图控制画风，第二张图控制角色。");
     });
-    expect(screen.getByLabelText("自定义提示词")).toHaveValue("后端自定义提示词：下方向怯生生走路第一帧。");
-    expect(screen.getByLabelText(/图像模型/i)).toHaveValue("local/gpt-image-2");
-    expect(screen.getByLabelText(/图片生成尺寸/i)).toHaveValue("2048");
+    expect(screen.getByLabelText("设置基准模板自定义提示词")).toHaveValue("后端自定义提示词：下方向怯生生走路第一帧。");
+    expect(screen.getByLabelText("设置基准模板图像模型")).toHaveValue("local/gpt-image-2");
+    expect(screen.getByLabelText("设置基准模板图片生成尺寸")).toHaveValue("2048");
 
-    fireEvent.change(screen.getByLabelText("系统提示词"), {
+    fireEvent.change(screen.getByLabelText("设置基准模板系统提示词"), {
       target: { value: "网页覆盖后的系统提示词" }
     });
-    fireEvent.change(screen.getByLabelText("自定义提示词"), {
+    fireEvent.change(screen.getByLabelText("设置基准模板自定义提示词"), {
       target: { value: "网页覆盖后的自定义提示词" }
     });
-    fireEvent.click(screen.getByRole("button", { name: /保存基准模板配置/i }));
+    fireEvent.click(screen.getByRole("button", { name: "保存基准模板设置" }));
 
     await waitFor(() => {
       expect(fetchMock.mock.calls.some(([url, init]) =>
@@ -1976,35 +1997,37 @@ describe("App", () => {
 
   it("saves edited video generation config from the second stage", async () => {
     openSpriteAnimator();
-    fireEvent.click(screen.getByRole("button", { name: "步行" }));
+    fireEvent.click(screen.getByRole("button", { name: "模块设置" }));
+    fireEvent.click(screen.getByRole("button", { name: "步行设置" }));
 
-    fireEvent.change(screen.getByLabelText(/视频模型/i), {
+    fireEvent.change(screen.getByLabelText("设置步行视频模型"), {
       target: { value: "bytedance/seedance-2.0" }
     });
-    fireEvent.change(screen.getByLabelText("视频系统提示词"), {
+    fireEvent.change(screen.getByLabelText("设置步行视频系统提示词"), {
       target: { value: "已保存的视频系统提示词：四方向四宫格原地行走循环。" }
     });
-    fireEvent.change(screen.getByLabelText("视频自定义提示词"), {
+    fireEvent.change(screen.getByLabelText("设置步行视频自定义提示词"), {
       target: { value: "动作幅度轻微，保持角色原位置。" }
     });
-    expect(screen.getByLabelText(/最终视频提示词/i)).toHaveValue(
+    expect(screen.getByLabelText("设置步行视频最终提示词")).toHaveValue(
       "已保存的视频系统提示词：四方向四宫格原地行走循环。\n\n动作幅度轻微，保持角色原位置。"
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /保存视频配置/i }));
+    fireEvent.click(screen.getByRole("button", { name: "保存步行设置" }));
     await screen.findByText(/视频配置已保存到后端/);
 
     cleanup();
     openSpriteAnimator();
-    fireEvent.click(screen.getByRole("button", { name: "步行" }));
+    fireEvent.click(screen.getByRole("button", { name: "模块设置" }));
+    fireEvent.click(screen.getByRole("button", { name: "步行设置" }));
 
-    expect(screen.getByLabelText(/视频模型/i)).toHaveValue("bytedance/seedance-2.0");
-    expect(screen.getByLabelText(/视频时长/i)).toHaveValue("4");
+    expect(screen.getByLabelText("设置步行视频模型")).toHaveValue("bytedance/seedance-2.0");
+    expect(screen.getByLabelText("设置步行视频时长")).toHaveValue("4");
     expect(screen.queryByLabelText(/视频视角/i)).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/动作模板/i)).not.toBeInTheDocument();
-    expect(screen.getByLabelText("视频系统提示词")).toHaveValue("已保存的视频系统提示词：四方向四宫格原地行走循环。");
-    expect(screen.getByLabelText("视频自定义提示词")).toHaveValue("动作幅度轻微，保持角色原位置。");
-    expect(screen.getByLabelText(/最终视频提示词/i)).toHaveValue(
+    expect(screen.getByLabelText("设置步行视频系统提示词")).toHaveValue("已保存的视频系统提示词：四方向四宫格原地行走循环。");
+    expect(screen.getByLabelText("设置步行视频自定义提示词")).toHaveValue("动作幅度轻微，保持角色原位置。");
+    expect(screen.getByLabelText("设置步行视频最终提示词")).toHaveValue(
       "已保存的视频系统提示词：四方向四宫格原地行走循环。\n\n动作幅度轻微，保持角色原位置。"
     );
   });

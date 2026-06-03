@@ -14,6 +14,7 @@ export interface Module01SettingsPanel {
   group: Module01SettingsGroup;
   content: ReactNode;
   onSave: () => void;
+  status?: string;
 }
 
 export function Module01Settings({
@@ -29,12 +30,14 @@ export function Module01Settings({
   const group = MODULE01_SETTINGS_GROUPS.find((item) => item.id === activeGroup) ?? MODULE01_SETTINGS_GROUPS[0];
   const activeReferences = references.filter((reference) => reference.group === activeGroup);
   const activePanel = panels.find((panel) => panel.group === activeGroup);
+  const visibleStatuses = [activePanel?.status, status].filter((item): item is string => Boolean(item));
+  const activeStatus = [...new Set(visibleStatuses)].join(" / ");
 
   return (
     <section className="workflow-stage module01-settings-center">
       <div className="stage-heading">
         <h2>模块设置</h2>
-        <span>{status}</span>
+        <span>{activeStatus}</span>
       </div>
       <div className="module01-settings-layout">
         <nav className="module01-settings-nav" aria-label="模块设置分类">
