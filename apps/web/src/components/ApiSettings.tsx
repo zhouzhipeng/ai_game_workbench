@@ -1,149 +1,77 @@
-import { ArrowLeft, Plus, Save, Settings, Trash2 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { ArrowLeft, KeyRound, Save } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { APIMART_PROVIDER_ID, OPENROUTER_PROVIDER_ID, type ProviderModelCatalog } from "@ai-game-workbench/core";
 import {
-  getAdminProviderSettings,
-  saveAdminProviderSettings,
-  type AdminProviderSettingsResponse,
-  type ProviderSecretPatch,
-  type ProviderSettingsDocument
+  getProviderModelCatalog,
+  loadUserApiProviderSettings,
+  saveUserApiProviderSettings,
+  SELECTABLE_API_PROVIDER_IDS,
+  USER_API_PROVIDER_SETTINGS_UPDATED_EVENT,
+  USER_API_PROVIDER_SETTINGS_STORAGE_KEY
 } from "../api/client";
-import type { GenerationCapability, ProviderModelPreset, ProviderSettings } from "@ai-game-workbench/core";
 
 interface ApiSettingsProps {
   onBack: () => void;
 }
 
-const ADMIN_TOKEN_STORAGE_KEY = "ai-game-workbench.admin-settings-token";
-const COMPATIBLE_PROVIDER_ID = "openrouter-compatible";
-
 export function ApiSettings({ onBack }: ApiSettingsProps) {
-  const [adminToken, setAdminToken] = useState(() => sessionStorage.getItem(ADMIN_TOKEN_STORAGE_KEY) ?? "");
-  const [settings, setSettings] = useState<ProviderSettingsDocument | null>(null);
-  const [secrets, setSecrets] = useState<AdminProviderSettingsResponse["secrets"]>({});
-  const [secretPatches, setSecretPatches] = useState<Record<string, ProviderSecretPatch>>({});
-  const [status, setStatus] = useState("Enter the admin token to load provider settings.");
-  const [isLoading, setIsLoading] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
+  const [settings, setSettings] = useState(() => loadUserApiProviderSettings());
+  const [catalog, setCatalog] = useState<ProviderModelCatalog | null>(null);
+  const [status, setStatus] = useState("选择一个服务商，填入这个服务商的 API key 后保存。");
 
-  const imageModels = useMemo(
-    () => settings?.models.filter((model) => model.enabled && model.capability === "image") ?? [],
-    [settings]
-  );
-  const videoModels = useMemo(
-    () => settings?.models.filter((model) => model.enabled && model.capability === "video") ?? [],
-    [settings]
-  );
-
-  const loadSettings = async () => {
-    const token = adminToken.trim();
-    if (!token) {
-      setStatus("Admin token is required.");
-      return;
-    }
-    setIsLoading(true);
-    setStatus("Loading provider settings...");
-    try {
-      sessionStorage.setItem(ADMIN_TOKEN_STORAGE_KEY, token);
-      const result = await getAdminProviderSettings(token);
-      applyResponse(result);
-      setStatus("Provider settings loaded.");
-    } catch (error: unknown) {
-      setStatus(`Load failed: ${getErrorMessage(error)}`);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const saveSettings = async () => {
-    if (!settings) {
-      setStatus("Load settings before saving.");
-      return;
-    }
-    const token = adminToken.trim();
-    if (!token) {
-      setStatus("Admin token is required.");
-      return;
-    }
-    setIsSaving(true);
-    setStatus("Saving provider settings...");
-    try {
-      sessionStorage.setItem(ADMIN_TOKEN_STORAGE_KEY, token);
-      const result = await saveAdminProviderSettings(token, {
-        ...settings,
-        secrets: secretPatches
+  useEffect(() => {
+    let cancelled = false;
+    void getProviderModelCatalog()
+      .then((nextCatalog) => {
+        if (!cancelled) {
+          setCatalog(nextCatalog);
+        }
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setStatus(`模型列表加载失败：${getErrorMessage(error)}`);
+        }
       });
-      applyResponse(result);
-      setStatus("Provider settings saved.");
-    } catch (error: unknown) {
-      setStatus(`Save failed: ${getErrorMessage(error)}`);
-    } finally {
-      setIsSaving(false);
-    }
-  };
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
-  const applyResponse = (response: AdminProviderSettingsResponse) => {
-    setSettings(response.settings);
-    setSecrets(response.secrets);
-    setSecretPatches({});
-  };
+  const selectableProviders = useMemo(
+    () => (catalog?.providers ?? [])
+      .filter((provider) => SELECTABLE_API_PROVIDER_IDS.includes(provider.id as typeof SELECTABLE_API_PROVIDER_IDS[number]) || provider.id === "openrouter-compatible"),
+    [catalog]
+  );
+  const activeKey = settings.apiKeys[settings.providerId] ?? "";
+  const activeProvider = selectableProviders.find((provider) => provider.id === settings.providerId)
+    ?? (settings.providerId === APIMART_PROVIDER_ID ? selectableProviders.find((provider) => provider.id === "openrouter-compatible") : undefined);
+  const activeModels = useMemo(
+    () => catalog?.models.filter((model) => model.enabled && (model.providerId === settings.providerId || settings.providerId === APIMART_PROVIDER_ID && model.providerId === "openrouter-compatible")) ?? [],
+    [catalog, settings.providerId]
+  );
 
-  const updateProvider = (providerId: string, patch: Partial<ProviderSettings>) => {
-    setSettings((current) => current ? {
+  const updateProvider = (providerId: string) => {
+    setSettings((current) => ({
       ...current,
-      providers: current.providers.map((provider) => provider.id === providerId ? { ...provider, ...patch } : provider)
-    } : current);
-  };
-
-  const updateModel = (modelId: string, patch: Partial<ProviderModelPreset>) => {
-    setSettings((current) => current ? {
-      ...current,
-      models: current.models.map((model) => model.id === modelId ? { ...model, ...patch } : model)
-    } : current);
-  };
-
-  const addCompatibleImageModel = () => {
-    setSettings((current) => {
-      if (!current) {
-        return current;
-      }
-      const modelId = `compatible/${Date.now().toString(36)}`;
-      return {
-        ...current,
-        models: [
-          ...current.models,
-          {
-            id: modelId,
-            providerId: COMPATIBLE_PROVIDER_ID,
-            upstreamModel: "provider/image-model",
-            label: "Compatible image model",
-            capability: "image",
-            enabled: true,
-            imageSizeOptions: [
-              { size: 1024, label: "1024 x 1024" }
-            ],
-            defaultImageSize: 1024
-          }
-        ]
-      };
-    });
-  };
-
-  const removeModel = (modelId: string) => {
-    setSettings((current) => current ? {
-      ...current,
-      models: current.models.filter((model) => model.id !== modelId),
-      defaults: {
-        imageModelId: current.defaults.imageModelId === modelId ? imageModels[0]?.id ?? current.defaults.imageModelId : current.defaults.imageModelId,
-        videoModelId: current.defaults.videoModelId === modelId ? videoModels[0]?.id ?? current.defaults.videoModelId : current.defaults.videoModelId
-      }
-    } : current);
-  };
-
-  const updateSecretPatch = (providerId: string, patch: ProviderSecretPatch) => {
-    setSecretPatches((current) => ({
-      ...current,
-      [providerId]: patch
+      providerId
     }));
+  };
+
+  const updateApiKey = (providerId: string, apiKey: string) => {
+    setSettings((current) => ({
+      ...current,
+      apiKeys: {
+        ...current.apiKeys,
+        [providerId]: apiKey
+      }
+    }));
+  };
+
+  const saveSettings = () => {
+    saveUserApiProviderSettings(settings);
+    window.dispatchEvent(new Event(USER_API_PROVIDER_SETTINGS_UPDATED_EVENT));
+    window.dispatchEvent(new StorageEvent("storage", { key: USER_API_PROVIDER_SETTINGS_STORAGE_KEY }));
+    setStatus(`${activeProvider?.label ?? settings.providerId} 已保存。`);
   };
 
   return (
@@ -153,170 +81,74 @@ export function ApiSettings({ onBack }: ApiSettingsProps) {
           <ArrowLeft size={18} />
         </button>
         <div>
-          <p className="eyebrow">Admin / API</p>
-          <h1>API Settings</h1>
+          <p className="eyebrow">API</p>
+          <h1>API 设置</h1>
         </div>
       </header>
 
-      <section className="settings-band">
-        <div className="settings-token-row">
+      <section className="settings-layout">
+        <section className="settings-section">
+          <h2>服务商</h2>
+          <div className="settings-table">
+            {selectableProviders.map((provider) => {
+              const isSelected = provider.id === settings.providerId;
+              return (
+                <label className="settings-row settings-provider-choice" key={provider.id}>
+                  <span className="settings-check">
+                    <input
+                      type="radio"
+                      name="api-provider"
+                      checked={isSelected || settings.providerId === APIMART_PROVIDER_ID && provider.id === "openrouter-compatible"}
+                      onChange={() => updateProvider(provider.id === "openrouter-compatible" ? APIMART_PROVIDER_ID : provider.id)}
+                    />
+                    {provider.label}
+                  </span>
+                  <span className="settings-provider-base-url">{provider.baseUrl}</span>
+                  <span className="settings-provider-models">
+                    {(catalog?.models ?? []).filter((model) => model.enabled && model.providerId === provider.id).map((model) => model.label).join(" / ")}
+                  </span>
+                </label>
+              );
+            })}
+            {selectableProviders.length === 0 ? <p className="settings-status">没有可用服务商。</p> : null}
+          </div>
+        </section>
+
+        <section className="settings-section">
+          <h2>API Key</h2>
           <label className="field">
-            Admin token
+            {activeProvider?.label ?? "当前服务商"} API key
             <input
-              aria-label="Admin settings token"
+              aria-label={`${activeProvider?.label ?? settings.providerId} API key`}
               autoComplete="off"
               type="password"
-              value={adminToken}
-              onChange={(event) => setAdminToken(event.target.value)}
+              value={activeKey}
+              onChange={(event) => updateApiKey(settings.providerId, event.target.value)}
             />
           </label>
-          <button className="tool-button primary" type="button" disabled={isLoading} onClick={() => void loadSettings()}>
-            <Settings size={16} /> {isLoading ? "Loading" : "Load"}
-          </button>
-          <button className="tool-button" type="button" disabled={!settings || isSaving} onClick={() => void saveSettings()}>
-            <Save size={16} /> {isSaving ? "Saving" : "Save"}
-          </button>
-        </div>
-        <p className="settings-status">{status}</p>
-      </section>
-
-      {settings ? (
-        <section className="settings-layout">
-          <section className="settings-section">
-            <h2>Providers</h2>
-            <div className="settings-table">
-              {settings.providers.map((provider) => (
-                <div className="settings-row" key={provider.id}>
-                  <label className="settings-check">
-                    <input
-                      type="checkbox"
-                      checked={provider.enabled}
-                      onChange={(event) => updateProvider(provider.id, { enabled: event.target.checked })}
-                    />
-                    Enabled
-                  </label>
-                  <label className="field">
-                    Label
-                    <input value={provider.label} onChange={(event) => updateProvider(provider.id, { label: event.target.value })} />
-                  </label>
-                  <label className="field">
-                    Base URL
-                    <input
-                      value={provider.baseUrl ?? ""}
-                      disabled={provider.kind === "local-codex"}
-                      onChange={(event) => updateProvider(provider.id, { baseUrl: event.target.value })}
-                    />
-                  </label>
-                  <label className="field">
-                    API key
-                    <input
-                      aria-label={`${provider.label} API key`}
-                      autoComplete="off"
-                      placeholder={secrets[provider.id]?.configured ? `Configured ...${secrets[provider.id]?.suffix ?? ""}` : "Paste new key"}
-                      type="password"
-                      disabled={provider.kind === "local-codex"}
-                      value={secretPatches[provider.id]?.apiKey ?? ""}
-                      onChange={(event) => updateSecretPatch(provider.id, { apiKey: event.target.value })}
-                    />
-                  </label>
-                  <button
-                    className="tool-button"
-                    type="button"
-                    disabled={provider.kind === "local-codex"}
-                    onClick={() => updateSecretPatch(provider.id, { clear: true })}
-                  >
-                    Clear key
-                  </button>
-                </div>
-              ))}
-            </div>
-          </section>
-
-          <section className="settings-section">
-            <div className="settings-section-heading">
-              <h2>Models</h2>
-              <button className="tool-button" type="button" onClick={addCompatibleImageModel}>
-                <Plus size={16} /> Add compatible image model
-              </button>
-            </div>
-            <div className="settings-defaults">
-              <label className="field">
-                Default image model
-                <select
-                  value={settings.defaults.imageModelId}
-                  onChange={(event) => setSettings({
-                    ...settings,
-                    defaults: { ...settings.defaults, imageModelId: event.target.value }
-                  })}
-                >
-                  {imageModels.map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}
-                </select>
-              </label>
-              <label className="field">
-                Default video model
-                <select
-                  value={settings.defaults.videoModelId}
-                  onChange={(event) => setSettings({
-                    ...settings,
-                    defaults: { ...settings.defaults, videoModelId: event.target.value }
-                  })}
-                >
-                  {videoModels.map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}
-                </select>
-              </label>
-            </div>
-            <div className="settings-table">
-              {settings.models.map((model) => (
-                <div className="settings-row settings-row-model" key={model.id}>
-                  <label className="settings-check">
-                    <input
-                      type="checkbox"
-                      checked={model.enabled}
-                      onChange={(event) => updateModel(model.id, { enabled: event.target.checked })}
-                    />
-                    Enabled
-                  </label>
-                  <label className="field">
-                    Model id
-                    <input value={model.id} disabled />
-                  </label>
-                  <label className="field">
-                    Label
-                    <input value={model.label} onChange={(event) => updateModel(model.id, { label: event.target.value })} />
-                  </label>
-                  <label className="field">
-                    Provider
-                    <select value={model.providerId} onChange={(event) => updateModel(model.id, { providerId: event.target.value })}>
-                      {settings.providers.map((provider) => (
-                        <option key={provider.id} value={provider.id}>{provider.label}</option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="field">
-                    Upstream model
-                    <input value={model.upstreamModel} onChange={(event) => updateModel(model.id, { upstreamModel: event.target.value })} />
-                  </label>
-                  <label className="field">
-                    Capability
-                    <select
-                      value={model.capability}
-                      onChange={(event) => updateModel(model.id, { capability: event.target.value as GenerationCapability })}
-                    >
-                      <option value="image">Image</option>
-                      <option value="video">Video</option>
-                    </select>
-                  </label>
-                  {model.providerId === COMPATIBLE_PROVIDER_ID ? (
-                    <button className="tool-button danger" type="button" onClick={() => removeModel(model.id)}>
-                      <Trash2 size={16} /> Remove
-                    </button>
-                  ) : null}
-                </div>
-              ))}
-            </div>
-          </section>
+          <div className="settings-actions">
+            <button className="tool-button primary" type="button" onClick={saveSettings}>
+              <Save size={16} /> 保存
+            </button>
+            <button className="tool-button" type="button" onClick={() => updateApiKey(settings.providerId, "")}>
+              <KeyRound size={16} /> 清空当前 key
+            </button>
+          </div>
+          <p className="settings-status">{status}</p>
         </section>
-      ) : null}
+
+        <section className="settings-section">
+          <h2>当前可选模型</h2>
+          <div className="settings-model-list">
+            {activeModels.map((model) => (
+              <div className="settings-model-item" key={model.id}>
+                <span>{model.label}</span>
+                <span>{model.capability === "image" ? "图片" : "视频"}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+      </section>
     </main>
   );
 }

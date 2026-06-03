@@ -364,6 +364,79 @@ describe("generation route", () => {
     await app.close();
   });
 
+  it("uses the selected provider API key from request headers for APIMart images", async () => {
+    const storageDir = makeStorageDir();
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      expect(init?.headers).toMatchObject({
+        Authorization: "Bearer sk-apimart-user-key"
+      });
+      return Response.json({
+        data: [
+          {
+            url: "data:image/png;base64,CQgHBg=="
+          }
+        ]
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const app = createApp({
+      ffmpegPath: "ffmpeg",
+      port: 8787,
+      storageDir
+    });
+    await app.ready();
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/generation/first-frame",
+      headers: {
+        "x-ai-provider-id": "apimart",
+        "x-ai-provider-api-key": "sk-apimart-user-key",
+        "x-public-asset-base-url": "https://assets.example.com"
+      },
+      payload: {
+        model: "apimart/gpt-image-2",
+        prompt: "APIMart first-frame prompt",
+        targetSize: 1024,
+        keyColor: "#00ff00"
+      }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(fetchMock).toHaveBeenCalledOnce();
+
+    await app.close();
+  });
+
+  it("rejects cross-provider model calls when the user selected another provider", async () => {
+    const app = createApp({
+      ffmpegPath: "ffmpeg",
+      port: 8787,
+      storageDir: makeStorageDir()
+    });
+    await app.ready();
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/generation/first-frame",
+      headers: {
+        "x-ai-provider-id": "apimart",
+        "x-ai-provider-api-key": "sk-apimart-user-key"
+      },
+      payload: {
+        model: "google/gemini-3.1-flash-image-preview",
+        prompt: "OpenRouter image prompt",
+        targetSize: 1024,
+        keyColor: "#00ff00"
+      }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json().error).toContain("Selected provider does not match");
+
+    await app.close();
+  });
+
   it("serves the built-in cel anime style reference image for frontend preview", async () => {
     const app = createApp({
       ffmpegPath: "ffmpeg",

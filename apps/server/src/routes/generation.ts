@@ -17,6 +17,11 @@ import {
   OpenAiImagesError
 } from "../providers/openAiImages";
 import {
+  buildApimartVideoGenerationPayload,
+  ApimartVideoClient,
+  ApimartVideoError
+} from "../providers/apimartVideo";
+import {
   generateLocalCodexImage,
   isLocalCodexImageModel,
   type LocalCodexImageGenerationInput,
@@ -39,6 +44,7 @@ import {
   resolveGenerationProviderModel,
   resolveOpenRouterVideoProvider
 } from "../providerSettings";
+import type { ProviderRequestAuth } from "../providerSettings";
 
 const BUILT_IN_STYLE_REFERENCE_CONTENT_TYPE = "image/png";
 
@@ -113,7 +119,7 @@ export function registerGenerationRoutes(app: FastifyInstance, config: AppConfig
     if ("error" in publicBaseResult) {
       return reply.code(400).send({ error: publicBaseResult.error });
     }
-    const resolvedModel = await resolveGenerationProviderModel(config, requestBody.model, "image");
+    const resolvedModel = await resolveGenerationProviderModel(config, requestBody.model, "image", readProviderRequestAuth(request.headers));
     if ("error" in resolvedModel) {
       return reply.code(resolvedModel.statusCode).send({ error: resolvedModel.error });
     }
@@ -141,7 +147,7 @@ export function registerGenerationRoutes(app: FastifyInstance, config: AppConfig
     const apiKey = resolvedModel.apiKey ?? "";
     try {
       const input = await withBuiltInStyleReference(resolvedRequestBody, config);
-      const providerResponse = resolvedModel.provider.kind === "openai-images"
+      const providerResponse = resolvedModel.provider.kind === "openai-images" || resolvedModel.provider.kind === "apimart"
         ? await new OpenAiImagesClient({ apiKey, baseUrl: resolvedModel.baseUrl ?? "" })
           .createImage(buildOpenAiImagesGenerationPayload(input))
         : await new OpenRouterClient({ apiKey, baseUrl: resolvedModel.baseUrl })
@@ -163,7 +169,7 @@ export function registerGenerationRoutes(app: FastifyInstance, config: AppConfig
     if ("error" in publicBaseResult) {
       return reply.code(400).send({ error: publicBaseResult.error });
     }
-    const resolvedModel = await resolveGenerationProviderModel(config, requestBody.model, "image");
+    const resolvedModel = await resolveGenerationProviderModel(config, requestBody.model, "image", readProviderRequestAuth(request.headers));
     if ("error" in resolvedModel) {
       return reply.code(resolvedModel.statusCode).send({ error: resolvedModel.error });
     }
@@ -203,7 +209,7 @@ export function registerGenerationRoutes(app: FastifyInstance, config: AppConfig
     try {
       const templateKind = requestBody.templateKind as DirectionTemplateKind;
       const characterId = readCharacterId(request.body) ?? readCharacterId(request.headers);
-      const providerResponse = resolvedModel.provider.kind === "openai-images"
+      const providerResponse = resolvedModel.provider.kind === "openai-images" || resolvedModel.provider.kind === "apimart"
         ? await new OpenAiImagesClient({ apiKey, baseUrl: resolvedModel.baseUrl ?? "" })
           .createImage(buildOpenAiImagesGenerationPayload(input))
         : await new OpenRouterClient({ apiKey, baseUrl: resolvedModel.baseUrl })
@@ -243,7 +249,7 @@ export function registerGenerationRoutes(app: FastifyInstance, config: AppConfig
     if (!characterId) {
       return reply.code(400).send({ error: "characterId is required" });
     }
-    const resolvedModel = await resolveGenerationProviderModel(config, requestBody.model, "image");
+    const resolvedModel = await resolveGenerationProviderModel(config, requestBody.model, "image", readProviderRequestAuth(request.headers));
     if ("error" in resolvedModel) {
       return reply.code(resolvedModel.statusCode).send({ error: resolvedModel.error });
     }
@@ -271,7 +277,7 @@ export function registerGenerationRoutes(app: FastifyInstance, config: AppConfig
     }
     const apiKey = resolvedModel.apiKey ?? "";
     try {
-      const providerResponse = resolvedModel.provider.kind === "openai-images"
+      const providerResponse = resolvedModel.provider.kind === "openai-images" || resolvedModel.provider.kind === "apimart"
         ? await new OpenAiImagesClient({ apiKey, baseUrl: resolvedModel.baseUrl ?? "" })
           .createImage(buildOpenAiImagesGenerationPayload({
             ...input,
@@ -301,12 +307,12 @@ export function registerGenerationRoutes(app: FastifyInstance, config: AppConfig
 
   app.post("/api/generation/video", async (request, reply) => {
     const input = request.body as Parameters<typeof buildVideoGenerationPayload>[0];
-    const resolvedModel = await resolveGenerationProviderModel(config, input.model, "video");
+    const resolvedModel = await resolveGenerationProviderModel(config, input.model, "video", readProviderRequestAuth(request.headers));
     if ("error" in resolvedModel) {
       return reply.code(resolvedModel.statusCode).send({ error: resolvedModel.error });
     }
-    if (resolvedModel.provider.kind !== "openrouter") {
-      return reply.code(400).send({ error: "Only OpenRouter video models are supported" });
+    if (resolvedModel.provider.kind !== "openrouter" && resolvedModel.provider.kind !== "apimart") {
+      return reply.code(400).send({ error: "Only OpenRouter and APIMart video models are supported" });
     }
     const apiKey = resolvedModel.apiKey ?? "";
     const urlError = validatePublicHttpsImageUrl(input.firstFrameUrl);
@@ -331,6 +337,17 @@ export function registerGenerationRoutes(app: FastifyInstance, config: AppConfig
         return reply.code(400).send({ error: `参考图无法访问：${referenceAccessError}` });
       }
     }
+    if (resolvedModel.provider.kind === "apimart") {
+      const client = new ApimartVideoClient({ apiKey, baseUrl: resolvedModel.baseUrl ?? "" });
+      try {
+        return await client.createVideo(buildApimartVideoGenerationPayload({
+          ...input,
+          model: resolvedModel.model.upstreamModel
+        }));
+      } catch (error: unknown) {
+        return sendGenerationError(error, reply);
+      }
+    }
     const client = new OpenRouterClient({ apiKey, baseUrl: resolvedModel.baseUrl });
     try {
       return await client.createVideo(buildVideoGenerationPayload({
@@ -343,7 +360,29 @@ export function registerGenerationRoutes(app: FastifyInstance, config: AppConfig
   });
 
   app.get("/api/generation/video/:jobId", async (request, reply) => {
-    const provider = await resolveOpenRouterVideoProvider(config);
+    const providerAuth = readProviderRequestAuth(request.headers);
+    if (providerAuth.providerId === "apimart") {
+      const settingsModel = await resolveGenerationProviderModel(config, "apimart/seedance-2.0", "video", providerAuth);
+      if ("error" in settingsModel) {
+        return reply.code(settingsModel.statusCode).send({ error: settingsModel.error });
+      }
+      const { jobId } = request.params as { jobId: string };
+      const jobIdError = validateJobId(jobId);
+      if (jobIdError) {
+        return reply.code(400).send({ error: jobIdError });
+      }
+      const client = new ApimartVideoClient({ apiKey: settingsModel.apiKey ?? "", baseUrl: settingsModel.baseUrl ?? "" });
+      try {
+        const providerResponse = await client.getVideoJob(jobId);
+        return await storeVideoJobStatus(jobId, providerResponse, config, settingsModel.apiKey ?? "", {
+          characterId: readCharacterId(request.query) ?? readCharacterId(request.headers),
+          actionKind: readActionKind(request.query) ?? readActionKind(request.headers)
+        });
+      } catch (error: unknown) {
+        return sendGenerationError(error, reply);
+      }
+    }
+    const provider = await resolveOpenRouterVideoProvider(config, providerAuth);
     if ("error" in provider) {
       return reply.code(provider.statusCode).send({ error: provider.error });
     }
@@ -743,6 +782,24 @@ function readActionKind(input: unknown): AdvancedActionKind | undefined {
   return undefined;
 }
 
+function readProviderRequestAuth(headers: Record<string, unknown>): ProviderRequestAuth {
+  return {
+    providerId: readHeaderString(headers, "x-ai-provider-id"),
+    apiKey: readHeaderString(headers, "x-ai-provider-api-key")
+  };
+}
+
+function readHeaderString(headers: Record<string, unknown>, name: string): string | undefined {
+  const value = headers[name];
+  if (typeof value === "string" && value.trim()) {
+    return value.trim();
+  }
+  if (Array.isArray(value) && typeof value[0] === "string" && value[0].trim()) {
+    return value[0].trim();
+  }
+  return undefined;
+}
+
 function isAdvancedActionKind(value: string): value is AdvancedActionKind {
   return value === "run" || value === "attack-1" || value === "jump";
 }
@@ -1022,6 +1079,12 @@ function sendGenerationError(error: unknown, reply: { code: (statusCode: number)
     });
   }
   if (error instanceof OpenAiImagesError) {
+    return reply.code(error.statusCode).send({
+      error: error.message,
+      providerStatus: error.statusCode
+    });
+  }
+  if (error instanceof ApimartVideoError) {
     return reply.code(error.statusCode).send({
       error: error.message,
       providerStatus: error.statusCode

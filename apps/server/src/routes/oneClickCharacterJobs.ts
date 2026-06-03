@@ -14,6 +14,7 @@ import {
 } from "../characterStorage";
 import { readModule01WorkflowConfig } from "./workflowConfig";
 import { resolveGenerationProviderModel } from "../providerSettings";
+import type { ProviderRequestAuth } from "../providerSettings";
 
 type AdvancedActionKind = "run" | "attack-1" | "jump";
 type OneClickStepStatus = "pending" | "running" | "completed" | "failed" | "skipped";
@@ -106,7 +107,7 @@ export function registerOneClickCharacterRoutes(app: FastifyInstance, config: On
 
   app.post("/api/module01/one-click-character-jobs", async (request, reply) => {
     const input = request.body as OneClickCharacterJobInput;
-    const validation = await validateStartInput(input, config);
+    const validation = await validateStartInput(input, config, readProviderRequestAuth(request.headers));
     if ("error" in validation) {
       return reply.code(validation.statusCode).send(validation.body);
     }
@@ -160,7 +161,8 @@ export function registerOneClickCharacterRoutes(app: FastifyInstance, config: On
 
 async function validateStartInput(
   input: OneClickCharacterJobInput,
-  config: OneClickCharacterRouteConfig
+  config: OneClickCharacterRouteConfig,
+  providerAuth: ProviderRequestAuth = {}
 ): Promise<{
   characterId: string;
   publicAssetBaseUrl: string;
@@ -168,6 +170,7 @@ async function validateStartInput(
   firstFrame: Required<NonNullable<OneClickCharacterJobInput["firstFrame"]>>;
   actions: { run: boolean; attack1: boolean; jump: boolean };
   workflowConfig: Record<string, unknown>;
+  providerAuthHeaders: Record<string, string>;
 } | { statusCode: number; body: Record<string, unknown>; error: true }> {
   let characterId: string;
   try {
@@ -206,17 +209,17 @@ async function validateStartInput(
     return { error: true, statusCode: 400, body: { error: "攻击中间帧提示词为空，请先去攻击动作1页面保存配置。" } };
   }
 
-  const firstFrameModel = await resolveGenerationProviderModel(config, input.firstFrame.model, "image");
+  const firstFrameModel = await resolveGenerationProviderModel(config, input.firstFrame.model, "image", providerAuth);
   if ("error" in firstFrameModel) {
     return { error: true, statusCode: firstFrameModel.statusCode, body: { error: firstFrameModel.error } };
   }
   const directionImageModel = readString(workflowConfig, "directionImageModel") || input.firstFrame.model;
-  const directionModel = await resolveGenerationProviderModel(config, directionImageModel, "image");
+  const directionModel = await resolveGenerationProviderModel(config, directionImageModel, "image", providerAuth);
   if ("error" in directionModel) {
     return { error: true, statusCode: directionModel.statusCode, body: { error: directionModel.error } };
   }
   const videoModel = readString(workflowConfig, "videoModel") || "bytedance/seedance-2.0";
-  const videoProviderModel = await resolveGenerationProviderModel(config, videoModel, "video");
+  const videoProviderModel = await resolveGenerationProviderModel(config, videoModel, "video", providerAuth);
   if ("error" in videoProviderModel) {
     return { error: true, statusCode: videoProviderModel.statusCode, body: { error: videoProviderModel.error } };
   }
@@ -233,7 +236,8 @@ async function validateStartInput(
       style: input.firstFrame.style?.trim() || "cel-anime"
     },
     actions,
-    workflowConfig
+    workflowConfig,
+    providerAuthHeaders: buildProviderAuthHeaders(providerAuth)
   };
 }
 
@@ -321,7 +325,8 @@ async function runDefaultOneClickJob(
 
   const headers = {
     "x-public-asset-base-url": input.publicAssetBaseUrl,
-    "x-character-id": encodeURIComponent(input.characterId)
+    "x-character-id": encodeURIComponent(input.characterId),
+    ...input.providerAuthHeaders
   };
   const workflow = input.workflowConfig;
   const keyColor = input.firstFrame.keyColor;
@@ -385,7 +390,8 @@ async function runDefaultOneClickJob(
     model: videoModel,
     durationSeconds: videoDurationSeconds,
     resolution: videoResolution,
-    characterId: input.characterId
+    characterId: input.characterId,
+    providerAuthHeaders: input.providerAuthHeaders
   }));
   await runRequiredStep(context, "walk-loop-export", async () => processBaseLoop(app, workflow, {
     jobId: walkJobId,
@@ -422,7 +428,8 @@ async function runDefaultOneClickJob(
         durationSeconds: videoDurationSeconds,
         resolution: videoResolution,
         characterId: input.characterId,
-        actionKind: "run"
+        actionKind: "run",
+        providerAuthHeaders: input.providerAuthHeaders
       }));
       await runStep(context, "run-export", async () => processAdvanced(app, workflow, {
         jobId: runJobId,
@@ -467,7 +474,8 @@ async function runDefaultOneClickJob(
         durationSeconds: videoDurationSeconds,
         resolution: videoResolution,
         characterId: input.characterId,
-        actionKind: "attack-1"
+        actionKind: "attack-1",
+        providerAuthHeaders: input.providerAuthHeaders
       }));
       await runStep(context, "attack-export", async () => processAdvanced(app, workflow, {
         jobId: attackJobId,
@@ -493,7 +501,8 @@ async function runDefaultOneClickJob(
         durationSeconds: videoDurationSeconds,
         resolution: videoResolution,
         characterId: input.characterId,
-        actionKind: "jump"
+        actionKind: "jump",
+        providerAuthHeaders: input.providerAuthHeaders
       }));
       await runStep(context, "jump-export", async () => processAdvanced(app, workflow, {
         jobId: jumpJobId,
@@ -571,11 +580,13 @@ async function submitVideoAndPoll(
     resolution: string;
     characterId: string;
     actionKind?: AdvancedActionKind;
+    providerAuthHeaders?: Record<string, string>;
   }
 ): Promise<string> {
   const submit = await injectJson(app, {
     method: "POST",
     url: "/api/generation/video",
+    headers: input.providerAuthHeaders,
     payload: {
       model: input.model,
       prompt: input.prompt,
@@ -598,7 +609,8 @@ async function submitVideoAndPoll(
   for (let attempt = 0; attempt < 240; attempt += 1) {
     const status = await injectJson(app, {
       method: "GET",
-      url: `/api/generation/video/${encodeURIComponent(jobId)}?${query.toString()}`
+      url: `/api/generation/video/${encodeURIComponent(jobId)}?${query.toString()}`,
+      headers: input.providerAuthHeaders
     });
     const normalized = findStringValue(status, ["status"])?.toLowerCase() ?? "pending";
     if (normalized === "completed" && findStringValue(status, ["localVideoUrl"])) {
@@ -770,6 +782,31 @@ function extensionFromContentType(contentType: string): "png" | "jpg" | "webp" {
 function readString(config: Record<string, unknown>, key: string): string {
   const value = config[key];
   return typeof value === "string" ? value.trim() : "";
+}
+
+function readProviderRequestAuth(headers: Record<string, unknown> | undefined): ProviderRequestAuth {
+  return {
+    providerId: readHeaderString(headers, "x-ai-provider-id"),
+    apiKey: readHeaderString(headers, "x-ai-provider-api-key")
+  };
+}
+
+function buildProviderAuthHeaders(auth: ProviderRequestAuth): Record<string, string> {
+  return {
+    ...(auth.providerId ? { "x-ai-provider-id": auth.providerId } : {}),
+    ...(auth.apiKey ? { "x-ai-provider-api-key": auth.apiKey } : {})
+  };
+}
+
+function readHeaderString(headers: Record<string, unknown> | undefined, name: string): string | undefined {
+  const value = headers?.[name];
+  if (typeof value === "string" && value.trim()) {
+    return value.trim();
+  }
+  if (Array.isArray(value) && typeof value[0] === "string" && value[0].trim()) {
+    return value[0].trim();
+  }
+  return undefined;
 }
 
 function requireConfigString(config: Record<string, unknown>, key: string, label: string): string {

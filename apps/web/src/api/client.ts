@@ -1,3 +1,8 @@
+import {
+  APIMART_PROVIDER_ID,
+  LOCAL_CODEX_PROVIDER_ID,
+  OPENROUTER_PROVIDER_ID
+} from "@ai-game-workbench/core";
 import type {
   ProjectState,
   ProviderModelCatalog,
@@ -325,7 +330,18 @@ export interface GenerationRequestOptions {
   publicAssetBaseUrl?: string;
   characterId?: string;
   actionKind?: AdvancedActionKind;
+  providerId?: string;
+  providerApiKey?: string;
 }
+
+export interface UserApiProviderSettings {
+  providerId: string;
+  apiKeys: Record<string, string>;
+}
+
+export const USER_API_PROVIDER_SETTINGS_STORAGE_KEY = "ai-game-workbench.user-api-provider-settings.v1";
+export const USER_API_PROVIDER_SETTINGS_UPDATED_EVENT = "ai-game-workbench.user-api-provider-settings-updated";
+export const SELECTABLE_API_PROVIDER_IDS = [APIMART_PROVIDER_ID, OPENROUTER_PROVIDER_ID] as const;
 
 export type OneClickJobStepStatus = "pending" | "running" | "completed" | "failed" | "skipped";
 export type OneClickJobStatus = "running" | "completed" | "failed";
@@ -541,6 +557,69 @@ export async function getProviderModelCatalog(): Promise<ProviderModelCatalog> {
     throw new Error(await readErrorMessage(response, `Provider model catalog load failed: ${response.status}`));
   }
   return response.json() as Promise<ProviderModelCatalog>;
+}
+
+export function loadUserApiProviderSettings(): UserApiProviderSettings {
+  if (typeof localStorage === "undefined") {
+    return createDefaultUserApiProviderSettings();
+  }
+  const raw = localStorage.getItem(USER_API_PROVIDER_SETTINGS_STORAGE_KEY);
+  if (!raw) {
+    return createDefaultUserApiProviderSettings();
+  }
+  try {
+    const parsed = JSON.parse(raw) as Partial<UserApiProviderSettings>;
+    const providerId = SELECTABLE_API_PROVIDER_IDS.includes(parsed.providerId as typeof SELECTABLE_API_PROVIDER_IDS[number])
+      ? parsed.providerId as string
+      : APIMART_PROVIDER_ID;
+    const apiKeys = parsed.apiKeys && typeof parsed.apiKeys === "object"
+      ? Object.fromEntries(Object.entries(parsed.apiKeys).filter((entry): entry is [string, string] => typeof entry[1] === "string"))
+      : {};
+    return { providerId, apiKeys };
+  } catch {
+    return createDefaultUserApiProviderSettings();
+  }
+}
+
+export function saveUserApiProviderSettings(settings: UserApiProviderSettings): void {
+  if (typeof localStorage === "undefined") {
+    return;
+  }
+  const providerId = SELECTABLE_API_PROVIDER_IDS.includes(settings.providerId as typeof SELECTABLE_API_PROVIDER_IDS[number])
+    ? settings.providerId
+    : APIMART_PROVIDER_ID;
+  localStorage.setItem(USER_API_PROVIDER_SETTINGS_STORAGE_KEY, JSON.stringify({
+    providerId,
+    apiKeys: settings.apiKeys
+  }));
+}
+
+export function filterProviderModelCatalogForUserSettings(
+  catalog: ProviderModelCatalog,
+  settings = loadUserApiProviderSettings()
+): ProviderModelCatalog {
+  const providerIds = getCompatibleProviderIds(settings.providerId);
+  const models = catalog.models.filter((model) => providerIds.includes(model.providerId) || model.providerId === LOCAL_CODEX_PROVIDER_ID);
+  const imageModels = models.filter((model) => model.capability === "image");
+  const videoModels = models.filter((model) => model.capability === "video");
+  return {
+    providers: catalog.providers.filter((provider) => providerIds.includes(provider.id) || provider.id === LOCAL_CODEX_PROVIDER_ID),
+    models,
+    imageModels,
+    videoModels,
+    defaults: {
+      imageModelId: imageModels.some((model) => model.id === catalog.defaults.imageModelId)
+        ? catalog.defaults.imageModelId
+        : imageModels[0]?.id ?? catalog.defaults.imageModelId,
+      videoModelId: videoModels.some((model) => model.id === catalog.defaults.videoModelId)
+        ? catalog.defaults.videoModelId
+        : videoModels[0]?.id ?? catalog.defaults.videoModelId
+    }
+  };
+}
+
+function getCompatibleProviderIds(providerId: string): string[] {
+  return providerId === APIMART_PROVIDER_ID ? [APIMART_PROVIDER_ID, "openrouter-compatible"] : [providerId];
 }
 
 export async function getAdminProviderSettings(adminToken: string): Promise<AdminProviderSettingsResponse> {
@@ -942,6 +1021,13 @@ function buildGenerationHeaders(options: GenerationRequestOptions): Record<strin
   const headers: Record<string, string> = {
     "Content-Type": "application/json"
   };
+  const providerAuth = resolveGenerationProviderAuth(options);
+  if (providerAuth.providerId) {
+    headers["x-ai-provider-id"] = providerAuth.providerId;
+  }
+  if (providerAuth.providerApiKey) {
+    headers["x-ai-provider-api-key"] = providerAuth.providerApiKey;
+  }
   const publicAssetBaseUrl = options.publicAssetBaseUrl?.trim();
   if (publicAssetBaseUrl) {
     headers["x-public-asset-base-url"] = publicAssetBaseUrl;
@@ -955,6 +1041,27 @@ function buildGenerationHeaders(options: GenerationRequestOptions): Record<strin
     headers["x-character-action-kind"] = actionKind;
   }
   return headers;
+}
+
+function resolveGenerationProviderAuth(options: GenerationRequestOptions): { providerId?: string; providerApiKey?: string } {
+  if (options.providerId || options.providerApiKey) {
+    return {
+      providerId: options.providerId,
+      providerApiKey: options.providerApiKey
+    };
+  }
+  const settings = loadUserApiProviderSettings();
+  return {
+    providerId: settings.providerId,
+    providerApiKey: settings.apiKeys[settings.providerId]?.trim()
+  };
+}
+
+function createDefaultUserApiProviderSettings(): UserApiProviderSettings {
+  return {
+    providerId: APIMART_PROVIDER_ID,
+    apiKeys: {}
+  };
 }
 
 function buildAdminSettingsHeaders(adminToken: string): Record<string, string> {

@@ -25,6 +25,7 @@ import {
 import type { AppConfig } from "../config";
 import { resolvePublicServerBaseUrl } from "./assets";
 import { resolveGenerationProviderModel } from "../providerSettings";
+import type { ProviderRequestAuth } from "../providerSettings";
 import {
   createPixelCharacterFolder,
   deletePixelCharacterFolder,
@@ -160,7 +161,7 @@ export function registerModule02Routes(app: FastifyInstance, config: Module02Rou
 
   app.post("/api/module02/generation/sprite-sheet", async (request, reply) => {
     const requestBody = request.body as SpriteSheetGenerationRequest;
-    const resolvedModel = await resolveGenerationProviderModel(config, requestBody.model, "image");
+    const resolvedModel = await resolveGenerationProviderModel(config, requestBody.model, "image", readProviderRequestAuth(request.headers));
     if ("error" in resolvedModel) {
       return reply.code(resolvedModel.statusCode).send({ error: resolvedModel.error });
     }
@@ -200,7 +201,7 @@ export function registerModule02Routes(app: FastifyInstance, config: Module02Rou
     }
     const apiKey = resolvedModel.apiKey ?? "";
     try {
-      const providerResponse = resolvedModel.provider.kind === "openai-images"
+      const providerResponse = resolvedModel.provider.kind === "openai-images" || resolvedModel.provider.kind === "apimart"
         ? await new OpenAiImagesClient({ apiKey, baseUrl: resolvedModel.baseUrl ?? "" })
           .createImage(buildOpenAiImagesGenerationPayload({
             model: resolvedModel.model.upstreamModel,
@@ -717,6 +718,24 @@ function readPixelCharacterId(input: unknown): string | undefined {
   const bodyValue = (input as { pixelCharacterId?: unknown }).pixelCharacterId;
   if (typeof bodyValue === "string" && bodyValue.trim()) {
     return bodyValue.trim();
+  }
+  return undefined;
+}
+
+function readProviderRequestAuth(headers: Record<string, unknown>): ProviderRequestAuth {
+  return {
+    providerId: readHeaderString(headers, "x-ai-provider-id"),
+    apiKey: readHeaderString(headers, "x-ai-provider-api-key")
+  };
+}
+
+function readHeaderString(headers: Record<string, unknown>, name: string): string | undefined {
+  const value = headers[name];
+  if (typeof value === "string" && value.trim()) {
+    return value.trim();
+  }
+  if (Array.isArray(value) && typeof value[0] === "string" && value[0].trim()) {
+    return value[0].trim();
   }
   return undefined;
 }

@@ -36,10 +36,12 @@ describe("provider settings routes", () => {
     expect(response.json().imageModels.map((model: { id: string }) => model.id)).toEqual([
       "local/gpt-image-2",
       "google/gemini-3.1-flash-image-preview",
-      "apimart/gpt-image-2"
+      "apimart/gpt-image-2",
+      "apimart/nano-banana-2"
     ]);
     expect(response.json().videoModels.map((model: { id: string }) => model.id)).toEqual([
-      "bytedance/seedance-2.0"
+      "bytedance/seedance-2.0",
+      "apimart/seedance-2.0"
     ]);
     expect(response.json()).toMatchObject({
       defaults: {
@@ -49,7 +51,7 @@ describe("provider settings routes", () => {
       imageModels: expect.arrayContaining([
         expect.objectContaining({
           id: "apimart/gpt-image-2",
-          providerId: "openrouter-compatible",
+          providerId: "apimart",
           upstreamModel: "gpt-image-2"
         })
       ])
@@ -88,9 +90,9 @@ describe("provider settings routes", () => {
       payload: {
         providers: [
           {
-            id: "openrouter-compatible",
-            label: "APIMart images endpoint",
-            kind: "openai-images",
+            id: "apimart",
+            label: "APIMart",
+            kind: "apimart",
             enabled: true,
             baseUrl: "https://api.apimart.ai/v1"
           }
@@ -98,7 +100,7 @@ describe("provider settings routes", () => {
         models: [
           {
             id: "apimart/gpt-image-2",
-            providerId: "openrouter-compatible",
+            providerId: "apimart",
             upstreamModel: "gpt-image-2",
             label: "APIMart GPT-Image-2",
             capability: "image",
@@ -112,7 +114,7 @@ describe("provider settings routes", () => {
           videoModelId: "bytedance/seedance-2.0"
         },
         secrets: {
-          "openrouter-compatible": {
+          "apimart": {
             apiKey: "sk-compatible-secret-tail"
           }
         }
@@ -130,7 +132,7 @@ describe("provider settings routes", () => {
     expect(wrongTokenResponse.statusCode).toBe(401);
     expect(saveResponse.statusCode).toBe(200);
     expect(readResponse.statusCode).toBe(200);
-    expect(readResponse.json().secrets["openrouter-compatible"]).toEqual({ configured: true, suffix: "tail" });
+    expect(readResponse.json().secrets.apimart).toEqual({ configured: true, suffix: "tail" });
     expect(JSON.stringify(readResponse.json())).not.toContain("sk-compatible-secret-tail");
 
     await app.close();
@@ -164,7 +166,7 @@ describe("provider settings routes", () => {
     mkdirSync(join(storageDir, "config"), { recursive: true });
     writeFileSync(
       join(storageDir, "config", "provider-secrets.json"),
-      `\uFEFF${JSON.stringify({ apiKeys: { "openrouter-compatible": "sk-compatible-bom-tail" } })}`,
+      `\uFEFF${JSON.stringify({ apiKeys: { apimart: "sk-compatible-bom-tail" } })}`,
       "utf8"
     );
     const app = createApp({
@@ -184,7 +186,7 @@ describe("provider settings routes", () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json().secrets["openrouter-compatible"]).toEqual({ configured: true, suffix: "tail" });
+    expect(response.json().secrets.apimart).toEqual({ configured: true, suffix: "tail" });
     expect(JSON.stringify(response.json())).not.toContain("sk-compatible-bom-tail");
 
     await app.close();

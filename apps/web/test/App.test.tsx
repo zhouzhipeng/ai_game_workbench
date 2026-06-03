@@ -59,7 +59,7 @@ beforeEach(() => {
           },
           secrets: {
             ...adminProviderSettingsPayload.secrets,
-            ...(body.secrets?.["openrouter-compatible"]?.apiKey ? { "openrouter-compatible": { configured: true, suffix: "test" } } : {})
+            ...(body.secrets?.apimart?.apiKey ? { apimart: { configured: true, suffix: "test" } } : {})
           }
         };
       }
@@ -483,9 +483,9 @@ function makeProviderModelCatalog() {
       baseUrl: "https://openrouter.ai/api/v1"
     },
     {
-      id: "openrouter-compatible",
-      label: "APIMart images endpoint",
-      kind: "openai-images",
+      id: "apimart",
+      label: "APIMart",
+      kind: "apimart",
       enabled: true,
       baseUrl: "https://api.apimart.ai/v1"
     },
@@ -499,7 +499,7 @@ function makeProviderModelCatalog() {
   const imageModels = [
     {
       id: APIMART_IMAGE_MODEL,
-      providerId: "openrouter-compatible",
+      providerId: "apimart",
       upstreamModel: "gpt-image-2",
       label: "APIMart GPT-Image-2",
       capability: "image",
@@ -553,6 +553,18 @@ function makeProviderModelCatalog() {
       defaultDurationSeconds: 4,
       resolutionOptions: ["480p", "720p", "1080p"],
       defaultResolution: "720p"
+    },
+    {
+      id: "apimart/seedance-2.0",
+      providerId: "apimart",
+      upstreamModel: "doubao-seedance-2.0",
+      label: "APIMart Seedance 2.0",
+      capability: "video",
+      enabled: true,
+      durationOptions: [4, 5, 6],
+      defaultDurationSeconds: 4,
+      resolutionOptions: ["480p", "720p", "1080p"],
+      defaultResolution: "720p"
     }
   ];
   return {
@@ -562,7 +574,7 @@ function makeProviderModelCatalog() {
     videoModels,
     defaults: {
       imageModelId: APIMART_IMAGE_MODEL,
-      videoModelId: "bytedance/seedance-2.0"
+      videoModelId: "apimart/seedance-2.0"
     }
   };
 }
@@ -577,7 +589,7 @@ function makeAdminProviderSettingsResponse() {
     },
     secrets: {
       openrouter: { configured: false },
-      "openrouter-compatible": { configured: true, suffix: "test" },
+      apimart: { configured: true, suffix: "test" },
       "local-codex": { configured: false }
     }
   };
@@ -663,40 +675,25 @@ function openPixelSpriteGenerator() {
 }
 
 describe("App", () => {
-  it("opens API settings and saves APIMart as the default image provider", async () => {
+  it("opens API settings and saves the selected APIMart key locally", async () => {
     render(<App />);
 
     fireEvent.click(screen.getByRole("button", { name: /API Settings/i }));
-    expect(screen.getByRole("heading", { name: "API Settings" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "API 设置" })).toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText("Admin settings token"), {
-      target: { value: "admin-test-token" }
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Load" }));
+    expect(await screen.findByText("https://api.apimart.ai/v1")).toBeInTheDocument();
+    expect(screen.getByLabelText("APIMart API key")).toHaveValue("");
 
-    expect(await screen.findByDisplayValue("https://api.apimart.ai/v1")).toBeInTheDocument();
-    expect(screen.getByLabelText("Default image model")).toHaveValue(APIMART_IMAGE_MODEL);
-    expect(screen.getByPlaceholderText("Configured ...test")).toBeInTheDocument();
-    expect(screen.queryByDisplayValue(/^sk-/)).not.toBeInTheDocument();
-
-    fireEvent.change(screen.getByLabelText("APIMart images endpoint API key"), {
+    fireEvent.change(screen.getByLabelText("APIMart API key"), {
       target: { value: "sk-new-test" }
     });
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
 
-    await screen.findByText("Provider settings saved.");
-    const saveCall = fetchMock.mock.calls.findLast(([url, init]) =>
-      String(url).endsWith("/api/admin/provider-settings") && (init as RequestInit | undefined)?.method === "PUT"
-    );
-    expect(readHeader(saveCall?.[1]?.headers, "x-admin-settings-token")).toBe("admin-test-token");
-    expect(JSON.parse(String(saveCall?.[1]?.body))).toMatchObject({
-      defaults: {
-        imageModelId: APIMART_IMAGE_MODEL
-      },
-      secrets: {
-        "openrouter-compatible": {
-          apiKey: "sk-new-test"
-        }
+    await screen.findByText("APIMart 已保存。");
+    expect(JSON.parse(localStorage.getItem("ai-game-workbench.user-api-provider-settings.v1") ?? "{}")).toMatchObject({
+      providerId: "apimart",
+      apiKeys: {
+        apimart: "sk-new-test"
       }
     });
   });
@@ -1537,7 +1534,7 @@ describe("App", () => {
     expect(firstFrameBody.referenceImageDataUrl).toMatch(/^data:image\/png;base64,/);
 
     fireEvent.change(screen.getByLabelText(/视频模型/i), {
-      target: { value: "bytedance/seedance-2.0" }
+      target: { value: "apimart/seedance-2.0" }
     });
     expect(screen.getByLabelText(/视频时长/i)).toHaveValue("4");
     expect(screen.getByLabelText(/视频分辨率/i)).toHaveValue("720p");
@@ -1564,7 +1561,7 @@ describe("App", () => {
       String(url).includes("/api/generation/video") && (init as RequestInit | undefined)?.method === "POST"
     );
     expect(JSON.parse(String(videoCall?.[1]?.body))).toMatchObject({
-      model: "bytedance/seedance-2.0",
+      model: "apimart/seedance-2.0",
       durationSeconds: 4,
       resolution: "720p",
       firstFrameUrl: `https://assets.example.com${characterBase}/base-character/direction-templates/walk-4dir.png`
@@ -1590,7 +1587,7 @@ describe("App", () => {
     expect(screen.getByAltText("步行 2x2 输出预览")).toHaveAttribute("src", "blob:uploaded-input-preview");
 
     fireEvent.change(screen.getByLabelText(/视频模型/i), {
-      target: { value: "bytedance/seedance-2.0" }
+      target: { value: "apimart/seedance-2.0" }
     });
     const durationSelect = screen.getByLabelText(/视频时长/i);
     expect(durationSelect).toHaveValue("4");
@@ -1611,7 +1608,7 @@ describe("App", () => {
       String(url).includes("/api/generation/video") && (init as RequestInit | undefined)?.method === "POST"
     );
     expect(JSON.parse(String(videoCall?.[1]?.body))).toMatchObject({
-      model: "bytedance/seedance-2.0",
+      model: "apimart/seedance-2.0",
       durationSeconds: 5,
       resolution: "1080p",
       firstFrameUrl: `https://assets.example.com${characterBase}/base-character/walk-video/input-4dir.png`

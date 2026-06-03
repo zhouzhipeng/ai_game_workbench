@@ -5,6 +5,7 @@ import {
   DEFAULT_PROVIDER_MODEL_DEFAULTS,
   DEFAULT_PROVIDER_MODEL_PRESETS,
   DEFAULT_PROVIDER_SETTINGS,
+  APIMART_PROVIDER_ID,
   OPENROUTER_COMPATIBLE_PROVIDER_ID,
   OPENROUTER_PROVIDER_ID,
   type GenerationCapability,
@@ -46,6 +47,11 @@ export interface ProviderSettingsUpdateInput {
   models?: unknown;
   defaults?: unknown;
   secrets?: Record<string, ProviderSecretPatch>;
+}
+
+export interface ProviderRequestAuth {
+  providerId?: string;
+  apiKey?: string;
 }
 
 export interface ResolvedProviderModel {
@@ -141,7 +147,8 @@ export async function resolveGenerationProviderModel(
     "storageDir" | "openRouterApiKey" | "openAiCompatibleBaseUrl" | "openAiCompatibleApiKey"
   >,
   modelId: string | undefined,
-  capability: GenerationCapability
+  capability: GenerationCapability,
+  requestAuth: ProviderRequestAuth = {}
 ): Promise<ResolvedProviderModel | { statusCode: number; error: string }> {
   const settings = await readProviderSettingsDocument(config);
   const id = modelId?.trim();
@@ -168,7 +175,11 @@ export async function resolveGenerationProviderModel(
   if (provider.kind === "local-codex") {
     return { provider, model };
   }
-  const apiKey = await resolveProviderApiKey(provider.id, provider.kind, config);
+  const selectedProviderId = requestAuth.providerId?.trim();
+  if (selectedProviderId && selectedProviderId !== provider.id) {
+    return { statusCode: 400, error: `Selected provider does not match model provider: ${selectedProviderId} cannot call ${provider.label}` };
+  }
+  const apiKey = requestAuth.apiKey?.trim() || await resolveProviderApiKey(provider.id, provider.kind, config);
   if (!apiKey) {
     return { statusCode: 400, error: `API key is not configured for ${provider.label}` };
   }
@@ -176,7 +187,7 @@ export async function resolveGenerationProviderModel(
   if (!baseUrl) {
     return { statusCode: 400, error: `Base URL is not configured for ${provider.label}` };
   }
-  if (capability === "video" && provider.kind !== "openrouter") {
+  if (capability === "video" && provider.kind !== "openrouter" && provider.kind !== "apimart") {
     return { statusCode: 400, error: `Provider ${provider.label} does not support video generation` };
   }
   return {
@@ -188,14 +199,19 @@ export async function resolveGenerationProviderModel(
 }
 
 export async function resolveOpenRouterVideoProvider(
-  config: Pick<AppConfig, "storageDir" | "openRouterApiKey" | "openAiCompatibleBaseUrl">
+  config: Pick<AppConfig, "storageDir" | "openRouterApiKey" | "openAiCompatibleBaseUrl">,
+  requestAuth: ProviderRequestAuth = {}
 ): Promise<{ provider: ProviderSettings; apiKey: string; baseUrl: string } | { statusCode: number; error: string }> {
   const settings = await readProviderSettingsDocument(config);
   const provider = settings.providers.find((item) => item.id === OPENROUTER_PROVIDER_ID);
   if (!provider || !provider.enabled) {
     return { statusCode: 400, error: "OpenRouter provider is disabled" };
   }
-  const apiKey = await resolveProviderApiKey(provider.id, provider.kind, config);
+  const selectedProviderId = requestAuth.providerId?.trim();
+  if (selectedProviderId && selectedProviderId !== provider.id) {
+    return { statusCode: 400, error: `Selected provider does not match model provider: ${selectedProviderId} cannot call ${provider.label}` };
+  }
+  const apiKey = requestAuth.apiKey?.trim() || await resolveProviderApiKey(provider.id, provider.kind, config);
   if (!apiKey) {
     return { statusCode: 400, error: "API key is not configured for OpenRouter" };
   }
@@ -239,14 +255,14 @@ async function resolveProviderApiKey(
   config: Pick<AppConfig, "storageDir" | "openRouterApiKey" | "openAiCompatibleApiKey">
 ): Promise<string | undefined> {
   const secrets = await readStoredProviderSecrets(config.storageDir);
-  const saved = secrets.apiKeys[providerId]?.trim();
+  const saved = (secrets.apiKeys[providerId] ?? (providerId === APIMART_PROVIDER_ID ? secrets.apiKeys[OPENROUTER_COMPATIBLE_PROVIDER_ID] : undefined))?.trim();
   if (saved) {
     return saved;
   }
   if (kind === "openrouter") {
     return config.openRouterApiKey?.trim() || undefined;
   }
-  if (kind === "openrouter-compatible-chat" || kind === "openai-images") {
+  if (kind === "openrouter-compatible-chat" || kind === "openai-images" || kind === "apimart") {
     return config.openAiCompatibleApiKey?.trim() || undefined;
   }
   return undefined;
@@ -256,7 +272,7 @@ function resolveProviderBaseUrl(
   provider: ProviderSettings,
   config: Pick<AppConfig, "openAiCompatibleBaseUrl">
 ): string | undefined {
-  if (provider.kind === "openrouter-compatible-chat" || provider.kind === "openai-images") {
+  if (provider.kind === "openrouter-compatible-chat" || provider.kind === "openai-images" || provider.kind === "apimart") {
     return provider.baseUrl?.trim() || config.openAiCompatibleBaseUrl?.trim() || undefined;
   }
   return provider.baseUrl?.trim() || undefined;
@@ -306,11 +322,13 @@ function mergeProviders(input: unknown, config: Pick<AppConfig, "openAiCompatibl
       if (!provider) {
         continue;
       }
-      const current = byId.get(provider.id);
-      byId.set(provider.id, current ? { ...current, ...provider } : provider);
+      const normalizedProvider = migrateProvider(provider);
+      const current = byId.get(normalizedProvider.id);
+      byId.set(normalizedProvider.id, current ? { ...current, ...normalizedProvider } : normalizedProvider);
     }
   }
-  const compatible = byId.get(OPENROUTER_COMPATIBLE_PROVIDER_ID);
+  byId.delete(OPENROUTER_COMPATIBLE_PROVIDER_ID);
+  const compatible = byId.get(APIMART_PROVIDER_ID);
   if (compatible && !compatible.baseUrl?.trim() && config.openAiCompatibleBaseUrl?.trim()) {
     compatible.baseUrl = config.openAiCompatibleBaseUrl.trim();
   }
@@ -367,12 +385,28 @@ function normalizeProvider(value: unknown): ProviderSettings | undefined {
   };
 }
 
+function migrateProvider(provider: ProviderSettings): ProviderSettings {
+  if (provider.id === OPENROUTER_COMPATIBLE_PROVIDER_ID) {
+    return {
+      ...provider,
+      id: APIMART_PROVIDER_ID,
+      label: provider.label === OPENROUTER_COMPATIBLE_PROVIDER_ID ? "APIMart" : provider.label,
+      kind: "apimart"
+    };
+  }
+  return provider;
+}
+
+function migrateProviderId(providerId: string | undefined): string | undefined {
+  return providerId === OPENROUTER_COMPATIBLE_PROVIDER_ID ? APIMART_PROVIDER_ID : providerId;
+}
+
 function normalizeModel(value: unknown, providerIds: ReadonlySet<string>): ProviderModelPreset | undefined {
   if (!isPlainObject(value)) {
     return undefined;
   }
   const id = readRequiredId(value.id);
-  const providerId = readRequiredId(value.providerId);
+  const providerId = migrateProviderId(readRequiredId(value.providerId));
   const capability = value.capability === "video" ? "video" : value.capability === "image" ? "image" : undefined;
   if (!id || !providerId || !providerIds.has(providerId) || !capability) {
     return undefined;
@@ -456,7 +490,7 @@ function readRequiredId(value: unknown): string | undefined {
 }
 
 function readProviderKind(value: unknown): ProviderKind | undefined {
-  return value === "openrouter" || value === "openrouter-compatible-chat" || value === "openai-images" || value === "local-codex"
+  return value === "openrouter" || value === "openrouter-compatible-chat" || value === "openai-images" || value === "apimart" || value === "local-codex"
     ? value
     : undefined;
 }

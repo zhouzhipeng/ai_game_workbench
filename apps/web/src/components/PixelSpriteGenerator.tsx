@@ -16,9 +16,11 @@ import {
   createPixelCharacter,
   createSpriteSheetGeneration,
   deletePixelCharacter,
+  filterProviderModelCatalogForUserSettings,
   getProviderModelCatalog,
   getPixelCharacterAssets,
   getPixelSpriteActions,
+  loadUserApiProviderSettings,
   listPixelCharacters,
   processSpriteSheet,
   toAbsoluteApiUrl,
@@ -29,7 +31,8 @@ import {
   type PixelCharacterFrameAsset,
   type PixelSpriteActionTemplate,
   type PixelSpriteSliceKind,
-  type ProcessSpriteSheetResult
+  type ProcessSpriteSheetResult,
+  USER_API_PROVIDER_SETTINGS_UPDATED_EVENT
 } from "../api/client";
 
 type PixelPage = "base-template" | "walk-template" | "slice" | "character-preview";
@@ -123,6 +126,7 @@ export function PixelSpriteGenerator({ onBack }: PixelSpriteGeneratorProps) {
   const [actions, setActions] = useState<PixelSpriteActionTemplate[]>([]);
   const [draft, setDraft] = useState<PixelSpriteDraft>(() => loadDraft());
   const [providerModelCatalog, setProviderModelCatalog] = useState<ProviderModelCatalog | null>(null);
+  const [userApiProviderSettings, setUserApiProviderSettings] = useState(() => loadUserApiProviderSettings());
   const [baseStatus, setBaseStatus] = useState("选择或创建像素角色后，上传参考图并生成基准模板。");
   const [walkStatus, setWalkStatus] = useState("先生成角色基准模板，再生成四方向步行图。");
   const [sliceStatus, setSliceStatus] = useState("切帧会写入当前像素角色的 slices/idle 与 slices/walk。");
@@ -138,9 +142,13 @@ export function PixelSpriteGenerator({ onBack }: PixelSpriteGeneratorProps) {
 
   const idleAction = useMemo(() => actions.find((action) => action.id === "idle") ?? FALLBACK_ACTIONS.idle, [actions]);
   const walkAction = useMemo(() => actions.find((action) => action.id === "walk") ?? FALLBACK_ACTIONS.walk, [actions]);
+  const filteredProviderModelCatalog = useMemo(
+    () => providerModelCatalog ? filterProviderModelCatalogForUserSettings(providerModelCatalog, userApiProviderSettings) : null,
+    [providerModelCatalog, userApiProviderSettings]
+  );
   const imageModels = useMemo(
-    () => providerModelCatalog?.imageModels ?? [{ id: DEFAULT_IMAGE_MODEL, label: "Nano Banana 2" }],
-    [providerModelCatalog]
+    () => filteredProviderModelCatalog?.imageModels ?? [{ id: DEFAULT_IMAGE_MODEL, label: "APIMart GPT-Image-2" }],
+    [filteredProviderModelCatalog]
   );
   const idleFrames = assets.slices.idle.frames;
   const walkFrames = assets.slices.walk.frames;
@@ -159,9 +167,6 @@ export function PixelSpriteGenerator({ onBack }: PixelSpriteGeneratorProps) {
           return;
         }
         setProviderModelCatalog(catalog);
-        setDraft((current) => catalog.imageModels.some((model) => model.id === current.imageModel)
-          ? current
-          : { ...current, imageModel: catalog.defaults.imageModelId });
       })
       .catch((error: unknown) => {
         if (!cancelled) {
@@ -172,6 +177,25 @@ export function PixelSpriteGenerator({ onBack }: PixelSpriteGeneratorProps) {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    const reloadUserApiProviderSettings = () => setUserApiProviderSettings(loadUserApiProviderSettings());
+    window.addEventListener(USER_API_PROVIDER_SETTINGS_UPDATED_EVENT, reloadUserApiProviderSettings);
+    window.addEventListener("storage", reloadUserApiProviderSettings);
+    return () => {
+      window.removeEventListener(USER_API_PROVIDER_SETTINGS_UPDATED_EVENT, reloadUserApiProviderSettings);
+      window.removeEventListener("storage", reloadUserApiProviderSettings);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!filteredProviderModelCatalog) {
+      return;
+    }
+    setDraft((current) => filteredProviderModelCatalog.imageModels.some((model) => model.id === current.imageModel)
+      ? current
+      : { ...current, imageModel: filteredProviderModelCatalog.defaults.imageModelId });
+  }, [filteredProviderModelCatalog]);
 
   useEffect(() => {
     let cancelled = false;

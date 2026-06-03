@@ -32,6 +32,8 @@ import {
   getModule01WorkflowConfig,
   getProviderModelCatalog,
   getVideoGenerationStatus,
+  filterProviderModelCatalogForUserSettings,
+  loadUserApiProviderSettings,
   listCharacters,
   prepareAdvancedActionStartFrame,
   processAdvancedActionVideo,
@@ -41,7 +43,8 @@ import {
   toAbsoluteApiUrl,
   uploadFrameVideoAsset,
   uploadFirstFrameAsset,
-  uploadModule01ReferenceImage
+  uploadModule01ReferenceImage,
+  USER_API_PROVIDER_SETTINGS_UPDATED_EVENT
 } from "../api/client";
 import type {
   CharacterFolder,
@@ -371,6 +374,7 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
   const [activePage, setActivePage] = useState<Module01Page>("base-template");
   const openRouterApiKey = "";
   const [providerModelCatalog, setProviderModelCatalog] = useState<ProviderModelCatalog | null>(null);
+  const [userApiProviderSettings, setUserApiProviderSettings] = useState(() => loadUserApiProviderSettings());
   const [imageModel, setImageModel] = useState(savedDraft.imageModel);
   const [videoModel, setVideoModel] = useState(savedDraft.videoModel);
   const [keyColor, setKeyColor] = useState(savedDraft.keyColor);
@@ -472,13 +476,17 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
   const assetHydrationVersionRef = useRef(0);
   const [referenceImageVersion, setReferenceImageVersion] = useState("");
 
+  const filteredProviderModelCatalog = useMemo(
+    () => providerModelCatalog ? filterProviderModelCatalogForUserSettings(providerModelCatalog, userApiProviderSettings) : null,
+    [providerModelCatalog, userApiProviderSettings]
+  );
   const imageModels = useMemo(
-    () => providerModelCatalog ? toImageModelOptions(providerModelCatalog) : IMAGE_MODELS,
-    [providerModelCatalog]
+    () => filteredProviderModelCatalog ? toImageModelOptions(filteredProviderModelCatalog) : IMAGE_MODELS,
+    [filteredProviderModelCatalog]
   );
   const videoModels = useMemo(
-    () => providerModelCatalog ? toVideoModelOptions(providerModelCatalog) : VIDEO_MODELS,
-    [providerModelCatalog]
+    () => filteredProviderModelCatalog ? toVideoModelOptions(filteredProviderModelCatalog) : VIDEO_MODELS,
+    [filteredProviderModelCatalog]
   );
   const videoDurationOptions = useMemo(
     () => getVideoDurationOptions(videoModels, videoModel),
@@ -599,15 +607,6 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
           return;
         }
         setProviderModelCatalog(catalog);
-        setImageModel((current) => catalog.imageModels.some((model) => model.id === current)
-          ? current
-          : catalog.defaults.imageModelId);
-        setDirectionImageModel((current) => catalog.imageModels.some((model) => model.id === current)
-          ? current
-          : catalog.defaults.imageModelId);
-        setVideoModel((current) => catalog.videoModels.some((model) => model.id === current)
-          ? current
-          : catalog.defaults.videoModelId);
       })
       .catch((error: unknown) => {
         if (!isCancelled) {
@@ -618,6 +617,31 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
       isCancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    const reloadUserApiProviderSettings = () => setUserApiProviderSettings(loadUserApiProviderSettings());
+    window.addEventListener(USER_API_PROVIDER_SETTINGS_UPDATED_EVENT, reloadUserApiProviderSettings);
+    window.addEventListener("storage", reloadUserApiProviderSettings);
+    return () => {
+      window.removeEventListener(USER_API_PROVIDER_SETTINGS_UPDATED_EVENT, reloadUserApiProviderSettings);
+      window.removeEventListener("storage", reloadUserApiProviderSettings);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!filteredProviderModelCatalog) {
+      return;
+    }
+    setImageModel((current) => filteredProviderModelCatalog.imageModels.some((model) => model.id === current)
+      ? current
+      : filteredProviderModelCatalog.defaults.imageModelId);
+    setDirectionImageModel((current) => filteredProviderModelCatalog.imageModels.some((model) => model.id === current)
+      ? current
+      : filteredProviderModelCatalog.defaults.imageModelId);
+    setVideoModel((current) => filteredProviderModelCatalog.videoModels.some((model) => model.id === current)
+      ? current
+      : filteredProviderModelCatalog.defaults.videoModelId);
+  }, [filteredProviderModelCatalog]);
 
   useEffect(() => {
     let isCancelled = false;

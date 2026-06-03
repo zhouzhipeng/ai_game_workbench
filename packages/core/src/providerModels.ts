@@ -1,4 +1,4 @@
-export type ProviderKind = "openrouter" | "openrouter-compatible-chat" | "openai-images" | "local-codex";
+export type ProviderKind = "openrouter" | "openrouter-compatible-chat" | "openai-images" | "apimart" | "local-codex";
 
 export type GenerationCapability = "image" | "video";
 
@@ -45,6 +45,7 @@ export interface ProviderModelCatalog {
 
 export const OPENROUTER_PROVIDER_ID = "openrouter";
 export const OPENROUTER_COMPATIBLE_PROVIDER_ID = "openrouter-compatible";
+export const APIMART_PROVIDER_ID = "apimart";
 export const LOCAL_CODEX_PROVIDER_ID = "local-codex";
 export const LOCAL_CODEX_IMAGE_MODEL = "local/gpt-image-2";
 
@@ -57,9 +58,9 @@ export const DEFAULT_PROVIDER_SETTINGS: readonly ProviderSettings[] = [
     baseUrl: "https://openrouter.ai/api/v1"
   },
   {
-    id: OPENROUTER_COMPATIBLE_PROVIDER_ID,
-    label: "APIMart images endpoint",
-    kind: "openai-images",
+    id: APIMART_PROVIDER_ID,
+    label: "APIMart",
+    kind: "apimart",
     enabled: true,
     baseUrl: "https://api.apimart.ai/v1"
   },
@@ -103,7 +104,7 @@ export const DEFAULT_PROVIDER_MODEL_PRESETS: readonly ProviderModelPreset[] = [
   },
   {
     id: "apimart/gpt-image-2",
-    providerId: OPENROUTER_COMPATIBLE_PROVIDER_ID,
+    providerId: APIMART_PROVIDER_ID,
     upstreamModel: "gpt-image-2",
     label: "APIMart GPT-Image-2",
     capability: "image",
@@ -116,10 +117,37 @@ export const DEFAULT_PROVIDER_MODEL_PRESETS: readonly ProviderModelPreset[] = [
     defaultImageSize: 1024
   },
   {
+    id: "apimart/nano-banana-2",
+    providerId: APIMART_PROVIDER_ID,
+    upstreamModel: "gemini-3.1-flash-image-preview",
+    label: "APIMart Nano Banana 2",
+    capability: "image",
+    enabled: true,
+    imageSizeOptions: [
+      { size: 512, label: "512 x 512 (0.5K)" },
+      { size: 1024, label: "1024 x 1024 (1K)" },
+      { size: 2048, label: "2048 x 2048 (2K)" },
+      { size: 4096, label: "4096 x 4096 (4K)" }
+    ],
+    defaultImageSize: 1024
+  },
+  {
     id: "bytedance/seedance-2.0",
     providerId: OPENROUTER_PROVIDER_ID,
     upstreamModel: "bytedance/seedance-2.0",
     label: "Seedance 2.0",
+    capability: "video",
+    enabled: true,
+    durationOptions: rangeInclusive(4, 15),
+    defaultDurationSeconds: 4,
+    resolutionOptions: ["480p", "720p", "1080p"],
+    defaultResolution: "720p"
+  },
+  {
+    id: "apimart/seedance-2.0",
+    providerId: APIMART_PROVIDER_ID,
+    upstreamModel: "doubao-seedance-2.0",
+    label: "APIMart Seedance 2.0",
     capability: "video",
     enabled: true,
     durationOptions: rangeInclusive(4, 15),
