@@ -490,20 +490,6 @@ export function PixelSpriteGenerator({ onBack }: PixelSpriteGeneratorProps) {
     });
   };
 
-  const handleSlice = async (sliceKind: PixelSpriteSliceKind) => {
-    setIsProcessing(true);
-    setSliceStatus(sliceKind === "idle" ? "正在切分 idle 帧..." : "正在切分 walk 帧...");
-    try {
-      const result = await runSlice(sliceKind);
-      setAssets((current) => applySliceFrames(current, sliceKind, result.frames));
-      setSliceStatus(`${sliceKind} 切帧完成，共 ${result.frameCount} 帧。`);
-    } catch (error: unknown) {
-      setSliceStatus(`${sliceKind} 切帧失败：${getErrorMessage(error)}`);
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
   const handleSliceAll = async () => {
     setIsProcessing(true);
     setSliceStatus("正在一键处理 walk 与 idle 切帧...");
@@ -687,25 +673,9 @@ export function PixelSpriteGenerator({ onBack }: PixelSpriteGeneratorProps) {
                     </button>
                   </div>
                   <div className="control-row">
-                    <button className="tool-button" type="button" disabled={isProcessing} onClick={() => void handleSlice("idle")}>
-                      <Scissors size={16} /> 处理 idle 帧
-                    </button>
-                    <button className="tool-button" type="button" disabled={isProcessing} onClick={() => void handleSlice("walk")}>
-                      <Scissors size={16} /> 处理 walk 帧
-                    </button>
                     <button aria-label="执行一键处理" className="tool-button primary" type="button" disabled={isProcessing} onClick={() => void handleSliceAll()}>
                       <Scissors size={16} /> {isProcessing ? "处理中" : "一键处理"}
                     </button>
-                  </div>
-                  <div className="stage-media-grid">
-                    <div className="media-pane">
-                      <div className="media-pane-title">idle 帧</div>
-                      <FramePreviewGrid frames={idleFrames} emptyLabel="等待 idle 处理结果" />
-                    </div>
-                    <div className="media-pane">
-                      <div className="media-pane-title">walk 帧</div>
-                      <FramePreviewGrid frames={walkFrames} emptyLabel="等待 walk 处理结果" />
-                    </div>
                   </div>
                 </>
               )}
@@ -1060,38 +1030,6 @@ function ImagePreview({
       ) : (
         <EmptyMedia label={emptyLabel} />
       )}
-    </div>
-  );
-}
-
-function FramePreviewGrid({ emptyLabel, frames }: { emptyLabel: string; frames: PixelCharacterFrameAsset[] }) {
-  if (frames.length === 0) {
-    return (
-      <div className="media-box">
-        <EmptyMedia label={emptyLabel} />
-      </div>
-    );
-  }
-  const groups = groupFramesByRow(frames);
-  return (
-    <div className="media-box">
-      <div className="direction-preview-grid">
-        {DIRECTION_ROWS.map((direction) => {
-          const rowFrames = groups.get(direction.row) ?? [];
-          const firstFrame = rowFrames[0];
-          return (
-            <div className="direction-preview-card" key={direction.key}>
-              <div className="direction-preview-title">
-                <strong>{direction.label}</strong>
-                <span>{rowFrames.length} 帧</span>
-              </div>
-              <div className="direction-preview-image">
-                {firstFrame ? <img alt={`${direction.label} 切帧预览`} src={toAbsoluteApiUrl(firstFrame.url)} style={{ imageRendering: "pixelated" }} /> : <EmptyMedia label="等待帧" />}
-              </div>
-            </div>
-          );
-        })}
-      </div>
     </div>
   );
 }

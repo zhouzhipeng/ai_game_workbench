@@ -770,6 +770,10 @@ describe("App", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "步行" }));
     expect(screen.queryByAltText("walk 动作参考图预览")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "处理 idle 帧" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "处理 walk 帧" })).not.toBeInTheDocument();
+    expect(screen.queryByText("idle 帧")).not.toBeInTheDocument();
+    expect(screen.queryByText("walk 帧")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "生成四方向步行图" }));
     await waitFor(() => expect(fetchMock.mock.calls.some(([url, init]) =>
       String(url).endsWith("/api/module02/generation/sprite-sheet")
