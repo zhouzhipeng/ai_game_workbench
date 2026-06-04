@@ -380,7 +380,7 @@ describe("processing route", () => {
         characterId: "hero",
         actionKind: "attack-1",
         keyColor: "#00ff00",
-        scale: 0.5
+        scale: 0.57
       }
     });
 
@@ -427,7 +427,8 @@ describe("processing route", () => {
     mkdirSync(templateDir, { recursive: true });
     writeFileSync(join(templateDir, "idle-4dir.png"), await createTestIdleSheet({
       background: { r: 6, g: 249, b: 6, alpha: 1 },
-      detachedArtifact: { left: 50, top: 58, width: 2, height: 2, color: { r: 255, g: 0, b: 255, alpha: 1 } }
+      detachedArtifact: { left: 50, top: 58, width: 2, height: 2, color: { r: 255, g: 0, b: 255, alpha: 1 } },
+      downAccent: { left: 32, top: 14, width: 14, height: 34, color: { r: 0, g: 0, b: 255, alpha: 1 } }
     }));
 
     const response = await app.inject({
@@ -447,6 +448,14 @@ describe("processing route", () => {
     const raw = await sharp(output).ensureAlpha().raw().toBuffer();
     let tintedGreenPixels = 0;
     let detachedArtifactPixels = 0;
+    let unexpectedIntermediatePixels = 0;
+    const allowedColors = new Set([
+      "0,255,0",
+      "255,0,0",
+      "0,0,255",
+      "255,255,0",
+      "0,0,0"
+    ]);
     for (let index = 0; index < raw.length; index += 4) {
       const red = raw[index] ?? 0;
       const green = raw[index + 1] ?? 0;
@@ -459,9 +468,13 @@ describe("processing route", () => {
       if (red === 255 && green === 0 && blue === 255) {
         detachedArtifactPixels += 1;
       }
+      if (!allowedColors.has(`${red},${green},${blue}`)) {
+        unexpectedIntermediatePixels += 1;
+      }
     }
     expect(tintedGreenPixels).toBe(0);
     expect(detachedArtifactPixels).toBe(0);
+    expect(unexpectedIntermediatePixels).toBe(0);
 
     expect(findNonGreenBox(raw, 128, 128, { left: 0, top: 0, width: 64, height: 64 })).toMatchObject({ centerX: 32, centerY: 32 });
     expect(findNonGreenBox(raw, 128, 128, { left: 64, top: 0, width: 64, height: 64 })).toMatchObject({ centerX: 96, centerY: 32 });
@@ -854,6 +867,7 @@ describe("processing route", () => {
 async function createTestIdleSheet(options: {
   background?: { r: number; g: number; b: number; alpha: number };
   detachedArtifact?: { left: number; top: number; width: number; height: number; color: { r: number; g: number; b: number; alpha: number } };
+  downAccent?: { left: number; top: number; width: number; height: number; color: { r: number; g: number; b: number; alpha: number } };
 } = {}): Promise<Buffer> {
   const cellSize = 64;
   const background = options.background ?? { r: 0, g: 255, b: 0, alpha: 1 };
@@ -865,6 +879,9 @@ async function createTestIdleSheet(options: {
   ];
   if (options.detachedArtifact) {
     blocks.push(options.detachedArtifact);
+  }
+  if (options.downAccent) {
+    blocks.push(options.downAccent);
   }
   const characterBlocks = await Promise.all(blocks.map(async (block) => ({
     input: await sharp({

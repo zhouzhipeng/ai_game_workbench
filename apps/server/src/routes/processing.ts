@@ -627,7 +627,7 @@ async function buildScaledAdvancedStartSubject(
     })
     .resize(maxWidth, maxHeight, {
       fit: "inside",
-      kernel: "lanczos3",
+      kernel: "nearest",
       withoutEnlargement: false
     })
     .png()
