@@ -71,14 +71,14 @@ const DEFAULT_IMAGE_MODEL = "apimart/gpt-image-2";
 const DEFAULT_KEY_COLOR = "#00ff00";
 
 const PAGE_LABELS: Record<PixelPage, string> = {
-  "base-template": "基准模板",
+  "base-template": "基准模板/待机",
   "walk-template": "步行",
   "character-preview": "角色预览",
   "module-settings": "模块设置"
 };
 
 const SETTINGS_GROUPS: Array<{ id: PixelSettingsGroup; label: string; saveLabel: string }> = [
-  { id: "base-template", label: "基准模板设置", saveLabel: "保存基准模板设置" },
+  { id: "base-template", label: "基准模板/待机设置", saveLabel: "保存基准模板/待机设置" },
   { id: "walk-template", label: "步行设置", saveLabel: "保存步行设置" },
   { id: "character-preview", label: "角色预览设置", saveLabel: "保存角色预览设置" }
 ];
@@ -88,8 +88,8 @@ const DEFAULT_DRAFT: PixelSpriteDraft = {
   imageModel: DEFAULT_IMAGE_MODEL,
   publicAssetBaseUrl: "",
   keyColor: DEFAULT_KEY_COLOR,
-  basePrompt: "生成一个 2x2 接触表格式像素角色基准模板，保持纯色背景，角色居中，四方向一致。",
-  walkPrompt: "基于角色基准模板生成四方向步行动作 sprite sheet。保持角色比例、服装、配色一致。",
+  basePrompt: "生成一个 2x2 接触表格式像素角色基准模板/待机，保持纯色背景，角色居中，四方向一致。",
+  walkPrompt: "基于基准模板/待机生成四方向步行动作 sprite sheet。保持角色比例、服装、配色一致。",
   tolerance: 34,
   outputFrameWidth: 64,
   outputFrameHeight: 128,
@@ -102,7 +102,7 @@ const DEFAULT_DRAFT: PixelSpriteDraft = {
 const FALLBACK_ACTIONS: Record<"idle" | "walk", PixelSpriteActionTemplate> = {
   idle: {
     id: "idle",
-    name: "角色基准模板",
+    name: "基准模板/待机",
     referenceImage: "idle-2x2-centered.png",
     rows: 2,
     columns: 2,
@@ -140,8 +140,8 @@ export function PixelSpriteGenerator({ onBack }: PixelSpriteGeneratorProps) {
   const [activeSettingsGroup, setActiveSettingsGroup] = useState<PixelSettingsGroup>("base-template");
   const [providerModelCatalog, setProviderModelCatalog] = useState<ProviderModelCatalog | null>(null);
   const [userApiProviderSettings, setUserApiProviderSettings] = useState(() => loadUserApiProviderSettings());
-  const [baseStatus, setBaseStatus] = useState("选择或创建像素角色后，生成或上传基准模板。");
-  const [walkStatus, setWalkStatus] = useState("先生成角色基准模板，再生成四方向步行图。");
+  const [baseStatus, setBaseStatus] = useState("选择或创建像素角色后，生成或上传基准模板/待机。");
+  const [walkStatus, setWalkStatus] = useState("先生成基准模板/待机，再生成四方向步行图。");
   const [sliceStatus, setSliceStatus] = useState("切帧会写入当前像素角色的 slices/idle 与 slices/walk。");
   const [previewStatus, setPreviewStatus] = useState("");
   const [isGeneratingBase, setIsGeneratingBase] = useState(false);
@@ -391,7 +391,7 @@ export function PixelSpriteGenerator({ onBack }: PixelSpriteGeneratorProps) {
       return;
     }
     setIsGeneratingBase(true);
-    setBaseStatus("正在生成角色基准模板...");
+    setBaseStatus("正在生成基准模板/待机...");
     try {
       const result = await createSpriteSheetGeneration({
         actionId: "idle",
@@ -414,9 +414,9 @@ export function PixelSpriteGenerator({ onBack }: PixelSpriteGeneratorProps) {
           }
         }
       }));
-      setBaseStatus("角色基准模板生成完成。");
+      setBaseStatus("基准模板/待机生成完成。");
     } catch (error: unknown) {
-      setBaseStatus(`角色基准模板生成失败：${getErrorMessage(error)}`);
+      setBaseStatus(`基准模板/待机生成失败：${getErrorMessage(error)}`);
     } finally {
       setIsGeneratingBase(false);
     }
@@ -429,7 +429,7 @@ export function PixelSpriteGenerator({ onBack }: PixelSpriteGeneratorProps) {
     }
     const referenceUrl = assets.baseTemplate.output?.url ?? assets.baseTemplate.characterReference?.url;
     if (!referenceUrl) {
-      setWalkStatus("请先生成或上传角色基准模板。");
+      setWalkStatus("请先生成或上传基准模板/待机。");
       return;
     }
     setIsGeneratingWalk(true);
@@ -471,7 +471,7 @@ export function PixelSpriteGenerator({ onBack }: PixelSpriteGeneratorProps) {
     const isIdle = sliceKind === "idle";
     const sourceUrl = isIdle ? assets.baseTemplate.output?.url : assets.walkTemplate.output?.url;
     if (!sourceUrl) {
-      throw new Error(isIdle ? "缺少角色基准模板。" : "缺少四方向步行图。");
+      throw new Error(isIdle ? "缺少基准模板/待机。" : "缺少四方向步行图。");
     }
     return processSpriteSheet({
       pixelCharacterId: characterId,
@@ -600,7 +600,7 @@ export function PixelSpriteGenerator({ onBack }: PixelSpriteGeneratorProps) {
 
         <div className="nav-group-title">像素角色生成</div>
         <NavButton active={activePage === "base-template"} icon={<WandSparkles size={18} />} onClick={() => setActivePage("base-template")}>
-          基准模板
+          基准模板/待机
         </NavButton>
         <NavButton active={activePage === "walk-template"} icon={<ImagePlus size={18} />} onClick={() => setActivePage("walk-template")}>
           步行
@@ -625,7 +625,7 @@ export function PixelSpriteGenerator({ onBack }: PixelSpriteGeneratorProps) {
         <div className="workflow-stack">
           {activePage === "base-template" ? (
             <WorkflowStage
-              title="角色基准模板"
+              title="基准模板/待机"
               status={baseStatus}
               mediaPanes={[
                 {
@@ -633,17 +633,17 @@ export function PixelSpriteGenerator({ onBack }: PixelSpriteGeneratorProps) {
                   content: <ImagePreview alt="角色参考图预览" preview={characterReferencePreview} emptyLabel="等待角色参考图" />
                 },
                 {
-                  title: "角色基准模板",
-                  content: <ImagePreview alt="角色基准模板预览" preview={baseTemplatePreview} emptyLabel="等待角色基准模板" />
+                  title: "基准模板/待机",
+                  content: <ImagePreview alt="基准模板/待机预览" preview={baseTemplatePreview} emptyLabel="等待基准模板/待机" />
                 }
               ]}
               controls={(
                 <>
                   <div className="control-row">
                     <FileButton label="上传角色参考图" onFile={(file) => void handleUploadAsset("character-reference", file)} />
-                    <FileButton label="上传角色基准模板" onFile={(file) => void handleUploadAsset("base-template", file)} />
+                    <FileButton label="上传基准模板/待机" onFile={(file) => void handleUploadAsset("base-template", file)} />
                     <button className="tool-button primary" type="button" disabled={isGeneratingBase} onClick={() => void handleGenerateBaseTemplate()}>
-                      <WandSparkles size={16} /> {isGeneratingBase ? "生成中" : "生成角色基准模板"}
+                      <WandSparkles size={16} /> {isGeneratingBase ? "生成中" : "生成基准模板/待机"}
                     </button>
                   </div>
                 </>
@@ -657,8 +657,8 @@ export function PixelSpriteGenerator({ onBack }: PixelSpriteGeneratorProps) {
               status={walkStatus}
               mediaPanes={[
                 {
-                  title: "角色基准模板",
-                  content: <ImagePreview alt="步行图输入基准模板预览" preview={baseTemplatePreview} emptyLabel="等待角色基准模板" />
+                  title: "基准模板/待机",
+                  content: <ImagePreview alt="步行图输入基准模板/待机预览" preview={baseTemplatePreview} emptyLabel="等待基准模板/待机" />
                 },
                 {
                   title: "四方向步行图",
@@ -847,7 +847,7 @@ function PixelModuleSettings({
                   <div className="form-grid">
                     <label className="field">
                       图像模型
-                      <select aria-label="设置基准模板图像模型" value={draft.imageModel} onChange={(event) => onChangeDraft("imageModel", event.target.value)}>
+                      <select aria-label="设置基准模板/待机图像模型" value={draft.imageModel} onChange={(event) => onChangeDraft("imageModel", event.target.value)}>
                         {imageModels.map((model) => (
                           <option key={model.id} value={model.id}>{model.label}</option>
                         ))}
@@ -855,7 +855,7 @@ function PixelModuleSettings({
                     </label>
                     <label className="field">
                       背景键色
-                      <input aria-label="设置基准模板背景键色" type="color" value={draft.keyColor} onChange={(event) => onChangeDraft("keyColor", event.target.value)} />
+                      <input aria-label="设置基准模板/待机背景键色" type="color" value={draft.keyColor} onChange={(event) => onChangeDraft("keyColor", event.target.value)} />
                     </label>
                     <label className="field">
                       公网资源地址
@@ -865,12 +865,12 @@ function PixelModuleSettings({
                 </SettingsSubsection>
                 <SettingsSubsection title="提示词设置">
                   <label className="field">
-                    基准模板提示词
-                    <textarea aria-label="设置基准模板提示词" rows={7} value={draft.basePrompt} onChange={(event) => onChangeDraft("basePrompt", event.target.value)} />
+                    基准模板/待机提示词
+                    <textarea aria-label="设置基准模板/待机提示词" rows={7} value={draft.basePrompt} onChange={(event) => onChangeDraft("basePrompt", event.target.value)} />
                   </label>
                   <label className="field prompt-final">
-                    基准模板最终提示词
-                    <textarea aria-label="设置基准模板最终提示词" rows={5} value={draft.basePrompt} readOnly />
+                    基准模板/待机最终提示词
+                    <textarea aria-label="设置基准模板/待机最终提示词" rows={5} value={draft.basePrompt} readOnly />
                   </label>
                 </SettingsSubsection>
               </>

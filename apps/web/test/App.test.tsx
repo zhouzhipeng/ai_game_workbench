@@ -763,7 +763,7 @@ describe("App", () => {
 
     expect(screen.getByRole("heading", { name: "像素角色制作" })).toBeInTheDocument();
     expect(await screen.findByLabelText("当前像素角色")).toHaveValue("pixel-hero");
-    expect(screen.getByRole("button", { name: "基准模板" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "基准模板/待机" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "步行" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "角色预览" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "模块设置" })).toBeInTheDocument();
@@ -785,7 +785,7 @@ describe("App", () => {
   it("uses module 02 APIs for base generation, walk generation, and one-click slicing", async () => {
     openPixelSpriteGenerator();
 
-    expect(await screen.findByAltText("角色基准模板预览")).toHaveAttribute(
+    expect(await screen.findByAltText("基准模板/待机预览")).toHaveAttribute(
       "src",
       expect.stringContaining(`${pixelCharacterBase}/base-template/output.png`)
     );
@@ -796,7 +796,7 @@ describe("App", () => {
     expect(screen.getByLabelText("上传角色参考图")).toBeInTheDocument();
     expect(screen.queryByAltText("idle 动作参考图预览")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "生成角色基准模板" }));
+    fireEvent.click(screen.getByRole("button", { name: "生成基准模板/待机" }));
     await waitFor(() => expect(fetchMock.mock.calls.some(([url, init]) =>
       String(url).endsWith("/api/module02/generation/sprite-sheet")
       && String((init as RequestInit).body).includes('"actionId":"idle"')
@@ -844,7 +844,7 @@ describe("App", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "模块设置" }));
     expect(screen.getByRole("heading", { name: "模块设置" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "基准模板设置" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "基准模板/待机设置" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "步行设置" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "步行图设置" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "一键处理设置" })).not.toBeInTheDocument();
@@ -853,20 +853,20 @@ describe("App", () => {
     expect(screen.queryByAltText("角色参考图预览")).not.toBeInTheDocument();
     expect(screen.getByAltText("idle 动作参考图预览")).toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText("设置基准模板图像模型"), {
+    fireEvent.change(screen.getByLabelText("设置基准模板/待机图像模型"), {
       target: { value: "local/gpt-image-2" }
     });
-    fireEvent.change(screen.getByLabelText("设置基准模板背景键色"), {
+    fireEvent.change(screen.getByLabelText("设置基准模板/待机背景键色"), {
       target: { value: "#112233" }
     });
-    fireEvent.change(screen.getByLabelText("设置基准模板提示词"), {
+    fireEvent.change(screen.getByLabelText("设置基准模板/待机提示词"), {
       target: { value: "base prompt from settings" }
     });
-    fireEvent.click(screen.getByRole("button", { name: "保存基准模板设置" }));
-    expect(screen.getByText("基准模板设置已保存。")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "保存基准模板/待机设置" }));
+    expect(screen.getByText("基准模板/待机设置已保存。")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "基准模板" }));
-    fireEvent.click(screen.getByRole("button", { name: "生成角色基准模板" }));
+    fireEvent.click(screen.getByRole("button", { name: "基准模板/待机" }));
+    fireEvent.click(screen.getByRole("button", { name: "生成基准模板/待机" }));
     await waitFor(() => {
       const generationCall = fetchMock.mock.calls
         .filter(([url]) => String(url).endsWith("/api/module02/generation/sprite-sheet"))

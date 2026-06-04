@@ -35,7 +35,7 @@ export function WorkbenchHub({ onOpenApiSettings, onOpenPixelSpriteGenerator, on
         <button className="module-card module-card-active" type="button" onClick={onOpenPixelSpriteGenerator}>
           <span className="module-icon"><ImagePlus size={28} /></span>
           <span className="module-title">模块 02：像素角色制作</span>
-          <span className="module-desc">生成像素角色基准模板、四方向步行图，并切分 idle / walk 精灵帧。</span>
+          <span className="module-desc">生成像素角色基准模板/待机、四方向步行图，并切分 idle / walk 精灵帧。</span>
         </button>
 
         <button className="module-card module-card-active" type="button" onClick={onOpenApiSettings}>
