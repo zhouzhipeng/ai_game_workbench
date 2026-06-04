@@ -3,7 +3,6 @@ import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, extname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import type { FastifyInstance } from "fastify";
 import { findPixelSpriteAction, PIXEL_SPRITE_ACTIONS } from "@ai-game-workbench/core";
 import {
@@ -26,6 +25,7 @@ import type { AppConfig } from "../config";
 import { resolvePublicServerBaseUrl } from "./assets";
 import { resolveGenerationProviderModel } from "../providerSettings";
 import type { ProviderRequestAuth } from "../providerSettings";
+import { readModule02ActionReferenceBuffer } from "../module02ActionReferences";
 import {
   createPixelCharacterFolder,
   deletePixelCharacterFolder,
@@ -36,12 +36,13 @@ import {
   toPixelCharacterUrl
 } from "../pixelCharacterStorage";
 import {
-  alignTransparentFrameToReferenceBuffers,
   sliceSpriteSheetBuffer,
+  type MattingMode,
   type SlicedSpriteFrame
 } from "../processing/imageProcessing";
+import { createLocalBirefnetMattingRunner, type BirefnetMattingRunner } from "../processing/birefnet";
 
-type Module02RouteConfig = Pick<AppConfig, "storageDir" | "openRouterApiKey" | "openAiCompatibleBaseUrl" | "openAiCompatibleApiKey" | "publicAssetBaseUrl" | "port" | "module01CharacterExportDir" | "localCodexImageGenerator">;
+type Module02RouteConfig = Pick<AppConfig, "storageDir" | "openRouterApiKey" | "openAiCompatibleBaseUrl" | "openAiCompatibleApiKey" | "publicAssetBaseUrl" | "port" | "module01CharacterExportDir" | "localCodexImageGenerator" | "birefnetPythonPath" | "birefnetModelId" | "birefnetDevice" | "birefnetInputSize" | "birefnetMattingRunner">;
 type PixelAssetKind = "character-reference" | "base-template" | "walk-template";
 type PixelSliceKind = "idle" | "walk";
 
@@ -240,6 +241,7 @@ export function registerModule02Routes(app: FastifyInstance, config: Module02Rou
       normalizeSubjectScale?: boolean;
       targetSubjectHeight?: number;
       directionLayout?: "grid" | "contact-2x2";
+      mattingMode?: MattingMode;
     };
     const rows = clampGridCount(input.rows, 1, 32, 1);
     const columns = clampGridCount(input.columns, 1, 64, 1);
@@ -247,6 +249,7 @@ export function registerModule02Routes(app: FastifyInstance, config: Module02Rou
     const tolerance = clampTolerance(input.tolerance);
     const outputFrameWidth = clampOutputFrameDimension(input.outputFrameWidth);
     const outputFrameHeight = clampOutputFrameDimension(input.outputFrameHeight);
+    const mattingMode = normalizeMattingMode(input.mattingMode);
     const normalizeSubjectScale = input.normalizeSubjectScale === true;
     const targetSubjectHeight = clampTargetSubjectHeight(input.targetSubjectHeight, outputFrameHeight)
       ?? (normalizeSubjectScale && outputFrameHeight ? Math.round(outputFrameHeight * 0.75) : undefined);
@@ -269,23 +272,26 @@ export function registerModule02Routes(app: FastifyInstance, config: Module02Rou
     }
     await resetOutputDirectory(outputRoot);
 
-    let slicedFrames = await sliceSpriteSheetBuffer(await readFile(sourceResult.sourcePath), {
-      rows,
-      columns,
-      keyColor,
-      tolerance,
-      centerFrames: input.centerFrames === true,
-      centerMode: input.centerMode === "row" ? "row" : "frame",
-      outputFrameWidth,
-      outputFrameHeight,
-      normalizeSubjectScale,
-      targetSubjectHeight,
-      directionLayout: input.directionLayout === "contact-2x2" ? "contact-2x2" : "grid"
-    });
-    if (pixelCharacterId && sliceKind === "idle") {
-      slicedFrames = await alignIdleFramesToExistingWalkRows(config.storageDir, pixelCharacterId, slicedFrames);
+    let slicedFrames: SlicedSpriteFrame[];
+    try {
+      slicedFrames = await sliceSpriteSheetBuffer(await readFile(sourceResult.sourcePath), {
+        rows,
+        columns,
+        keyColor,
+        tolerance,
+        mattingMode,
+        matteFrameBuffer: mattingMode === "birefnet" ? resolveBirefnetMattingRunner(config) : undefined,
+        centerFrames: input.centerFrames === true,
+        centerMode: input.centerMode === "row" ? "row" : "frame",
+        outputFrameWidth,
+        outputFrameHeight,
+        normalizeSubjectScale,
+        targetSubjectHeight,
+        directionLayout: input.directionLayout === "contact-2x2" ? "contact-2x2" : "grid"
+      });
+    } catch (error: unknown) {
+      return reply.code(500).send({ error: getErrorMessage(error) });
     }
-
     const frames = [];
     for (const frame of slicedFrames) {
       const rowDirName = `row_${String(frame.row).padStart(3, "0")}`;
@@ -406,7 +412,7 @@ async function buildSpriteSheetRoutePayload(
     customPrompt: input.customPrompt ?? "",
     keyColor
   });
-  const actionReferenceImageResult = await readActionReferenceImage(action.referenceImage);
+  const actionReferenceImageResult = await readActionReferenceImage(config.storageDir, action.referenceImage);
   if ("error" in actionReferenceImageResult) {
     return { error: actionReferenceImageResult.error };
   }
@@ -480,14 +486,15 @@ async function resolveCharacterReferenceUrlImage(
   };
 }
 
-async function readActionReferenceImage(referenceImage: string): Promise<{ dataUrl: string } | { error: string }> {
-  const referencePath = join(getModule02ActionReferenceRoot(), basename(referenceImage));
-  if (!existsSync(referencePath)) {
+async function readActionReferenceImage(storageDir: string, referenceImage: string): Promise<{ dataUrl: string } | { error: string }> {
+  try {
+    const buffer = await readModule02ActionReferenceBuffer(storageDir, referenceImage);
+    return {
+      dataUrl: `data:${contentTypeFromFileName(referenceImage)};base64,${buffer.toString("base64")}`
+    };
+  } catch {
     return { error: `动作参考图缺失：${referenceImage}` };
   }
-  return {
-    dataUrl: `data:${contentTypeFromFileName(referenceImage)};base64,${(await readFile(referencePath)).toString("base64")}`
-  };
 }
 
 async function runLocalCodexSpriteSheetGeneration(
@@ -650,33 +657,6 @@ function resolveModule02CharacterUrl(
     fileName,
     sourcePath: resolvePixelCharacterPath(storageDir, characterId, ...assetSegments)
   };
-}
-
-async function alignIdleFramesToExistingWalkRows(
-  storageDir: string,
-  pixelCharacterId: string,
-  idleFrames: SlicedSpriteFrame[]
-): Promise<SlicedSpriteFrame[]> {
-  const alignedFrames: SlicedSpriteFrame[] = [];
-  for (const frame of idleFrames) {
-    const rowDirName = `row_${String(frame.row).padStart(3, "0")}`;
-    const walkRowDir = resolvePixelCharacterPath(storageDir, pixelCharacterId, "slices", "walk", "frames", rowDirName);
-    if (!existsSync(walkRowDir)) {
-      alignedFrames.push(frame);
-      continue;
-    }
-    const walkFrameNames = (await readdir(walkRowDir))
-      .filter((fileName) => fileName.toLowerCase().endsWith(".png"))
-      .sort();
-    const referenceBuffers = [];
-    for (const walkFrameName of walkFrameNames) {
-      referenceBuffers.push(await readFile(join(walkRowDir, walkFrameName)));
-    }
-    alignedFrames.push(referenceBuffers.length > 0
-      ? { ...frame, buffer: await alignTransparentFrameToReferenceBuffers(frame.buffer, referenceBuffers) }
-      : frame);
-  }
-  return alignedFrames;
 }
 
 async function resetOutputDirectory(outputRoot: string): Promise<void> {
@@ -867,10 +847,6 @@ function buildImageDownloadHeaders(url: string, apiKey?: string): HeadersInit | 
   return undefined;
 }
 
-function getModule02ActionReferenceRoot(): string {
-  return fileURLToPath(new URL("../assets/module02-action-references", import.meta.url));
-}
-
 function parseFrameIndex(value: string): number {
   const match = /(\d+)/.exec(value);
   return match ? Number.parseInt(match[1] ?? "0", 10) : 1;
@@ -879,6 +855,20 @@ function parseFrameIndex(value: string): number {
 function clampTolerance(value: unknown): number {
   const tolerance = typeof value === "number" && Number.isFinite(value) ? Math.round(value) : 8;
   return Math.max(0, Math.min(255, tolerance));
+}
+
+function normalizeMattingMode(value: unknown): MattingMode {
+  return value === "birefnet" ? "birefnet" : "chroma";
+}
+
+function resolveBirefnetMattingRunner(config: Module02RouteConfig): BirefnetMattingRunner {
+  return config.birefnetMattingRunner ?? createLocalBirefnetMattingRunner({
+    storageDir: config.storageDir,
+    pythonPath: config.birefnetPythonPath,
+    modelId: config.birefnetModelId,
+    device: config.birefnetDevice,
+    inputSize: config.birefnetInputSize
+  });
 }
 
 function clampGridCount(value: unknown, min: number, max: number, fallback: number): number {
@@ -962,4 +952,8 @@ function sendGenerationError(error: unknown, reply: { code: (statusCode: number)
     });
   }
   throw error;
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

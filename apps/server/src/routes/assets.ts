@@ -20,6 +20,13 @@ import {
   isModule01ReferenceImageKind,
   resolveModule01ReferenceImageOverridePath
 } from "../referenceImages";
+import {
+  getModule02ActionReferenceFileName,
+  getModule02ActionReferenceUrl,
+  isModule02ActionReferenceId,
+  readModule02ActionReferenceBuffer,
+  resolveModule02ActionReferenceOverridePath
+} from "../module02ActionReferences";
 
 type AssetRouteConfig = Pick<AppConfig, "storageDir" | "module01CharacterExportDir" | "publicAssetBaseUrl" | "port">;
 
@@ -61,6 +68,21 @@ export function registerAssetRoutes(app: FastifyInstance, config: AssetRouteConf
     prefix: "/module02/characters/",
     decorateReply: false
   });
+
+  app.get("/module02/action-references/:fileName", async (request, reply) => {
+    const { fileName } = request.params as { fileName?: string };
+    const actionId = fileName === getModule02ActionReferenceFileName("idle")
+      ? "idle"
+      : fileName === getModule02ActionReferenceFileName("walk")
+        ? "walk"
+        : undefined;
+    if (!actionId) {
+      return reply.callNotFound();
+    }
+    const buffer = await readModule02ActionReferenceBuffer(config.storageDir, getModule02ActionReferenceFileName(actionId));
+    return reply.header("Content-Type", "image/png").send(buffer);
+  });
+
   void app.register(fastifyStatic, {
     root: module02ActionReferenceDir,
     prefix: "/module02/action-references/",
@@ -95,6 +117,32 @@ export function registerAssetRoutes(app: FastifyInstance, config: AssetRouteConf
       storedName: getModule01ReferenceImageFileName(kind),
       localPath,
       url: getModule01ReferenceImageUrl(kind)
+    };
+  });
+
+  app.post("/api/module02/action-references/:actionId", async (request, reply) => {
+    const { actionId } = request.params as { actionId?: string };
+    if (!isModule02ActionReferenceId(actionId)) {
+      return reply.code(400).send({ error: "module02 action reference must be idle or walk" });
+    }
+    const file = await request.file();
+    if (!file) {
+      return reply.code(400).send({ error: "file is required" });
+    }
+    if (!file.mimetype.startsWith("image/")) {
+      return reply.code(400).send({ error: "only image files are supported" });
+    }
+
+    const localPath = resolveModule02ActionReferenceOverridePath(config.storageDir, actionId);
+    const buffer = await sharp(await file.toBuffer()).png().toBuffer();
+    await mkdir(dirname(localPath), { recursive: true });
+    await writeFile(localPath, buffer);
+    return {
+      actionId,
+      fileName: file.filename,
+      storedName: getModule02ActionReferenceFileName(actionId),
+      localPath,
+      url: getModule02ActionReferenceUrl(actionId)
     };
   });
 

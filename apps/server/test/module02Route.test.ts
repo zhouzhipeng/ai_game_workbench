@@ -289,6 +289,122 @@ describe("module 02 pixel character routes", () => {
     await app.close();
   });
 
+  it("uses BiRefNet matting runner when module 02 processing requests birefnet", async () => {
+    const storageDir = makeStorageDir();
+    const birefnetMattingRunner = vi.fn(async (input: Buffer) => removeGreenWithAlpha(input));
+    const app = createApp({ storageDir, port: 8787, ffmpegPath: "ffmpeg", birefnetMattingRunner });
+    await app.ready();
+    await app.inject({
+      method: "POST",
+      url: "/api/module02/characters",
+      payload: { name: "hero" }
+    });
+    await mkdir(join(storageDir, "characters_pixel", "hero", "walk-template"), { recursive: true });
+    writeFileSync(join(storageDir, "characters_pixel", "hero", "walk-template", "output.png"), await createTestSheet());
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/module02/processing/sprite-sheet",
+      payload: {
+        pixelCharacterId: "hero",
+        sliceKind: "walk",
+        sourceUrl: "/module02/characters/hero/walk-template/output.png",
+        rows: 2,
+        columns: 2,
+        keyColor: "#00ff00",
+        tolerance: 8,
+        mattingMode: "birefnet",
+        centerFrames: true,
+        outputFrameWidth: 64,
+        outputFrameHeight: 64
+      }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(birefnetMattingRunner).toHaveBeenCalledTimes(1);
+    expect(existsSync(join(storageDir, "characters_pixel", "hero", "slices", "walk", "frames", "row_001", "frame_001.png"))).toBe(true);
+
+    await app.close();
+  });
+
+  it("keeps chroma processing from calling the BiRefNet runner", async () => {
+    const storageDir = makeStorageDir();
+    const birefnetMattingRunner = vi.fn(async (input: Buffer) => input);
+    const birefnetBatchMattingRunner = vi.fn(async (inputs: readonly Buffer[]) => [...inputs]);
+    const app = createApp({ storageDir, port: 8787, ffmpegPath: "ffmpeg", birefnetMattingRunner, birefnetBatchMattingRunner });
+    await app.ready();
+    await app.inject({
+      method: "POST",
+      url: "/api/module02/characters",
+      payload: { name: "hero" }
+    });
+    await mkdir(join(storageDir, "characters_pixel", "hero", "walk-template"), { recursive: true });
+    writeFileSync(join(storageDir, "characters_pixel", "hero", "walk-template", "output.png"), await createTestSheet());
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/module02/processing/sprite-sheet",
+      payload: {
+        pixelCharacterId: "hero",
+        sliceKind: "walk",
+        sourceUrl: "/module02/characters/hero/walk-template/output.png",
+        rows: 2,
+        columns: 2,
+        keyColor: "#00ff00",
+        tolerance: 8,
+        mattingMode: "chroma",
+        centerFrames: true,
+        outputFrameWidth: 64,
+        outputFrameHeight: 64
+      }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(birefnetMattingRunner).not.toHaveBeenCalled();
+    expect(birefnetBatchMattingRunner).not.toHaveBeenCalled();
+
+    await app.close();
+  });
+
+  it("returns a clear error when BiRefNet matting fails", async () => {
+    const storageDir = makeStorageDir();
+    const birefnetMattingRunner = vi.fn(async () => {
+      throw new Error("BiRefNet runtime missing");
+    });
+    const app = createApp({ storageDir, port: 8787, ffmpegPath: "ffmpeg", birefnetMattingRunner });
+    await app.ready();
+    await app.inject({
+      method: "POST",
+      url: "/api/module02/characters",
+      payload: { name: "hero" }
+    });
+    await mkdir(join(storageDir, "characters_pixel", "hero", "walk-template"), { recursive: true });
+    writeFileSync(join(storageDir, "characters_pixel", "hero", "walk-template", "output.png"), await createTestSheet());
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/module02/processing/sprite-sheet",
+      payload: {
+        pixelCharacterId: "hero",
+        sliceKind: "walk",
+        sourceUrl: "/module02/characters/hero/walk-template/output.png",
+        rows: 2,
+        columns: 2,
+        keyColor: "#00ff00",
+        tolerance: 8,
+        mattingMode: "birefnet",
+        outputFrameWidth: 64,
+        outputFrameHeight: 64
+      }
+    });
+
+    expect(response.statusCode).toBe(500);
+    expect(response.json()).toEqual({ error: "BiRefNet runtime missing" });
+    expect(existsSync(join(storageDir, "characters_pixel", "hero", "slices", "walk", "frames", "row_001", "frame_001.png"))).toBe(false);
+
+    await app.close();
+  });
+
   it("segments generated walk sheets by foreground sprites when columns are uneven", async () => {
     const storageDir = makeStorageDir();
     const app = createApp({ storageDir, port: 8787, ffmpegPath: "ffmpeg" });
@@ -487,6 +603,26 @@ async function createTestSheet(): Promise<Buffer> {
     ])
     .png()
     .toBuffer();
+}
+
+async function removeGreenWithAlpha(input: Buffer): Promise<Buffer> {
+  const image = sharp(input).ensureAlpha();
+  const { data, info } = await image.raw().toBuffer({ resolveWithObject: true });
+  for (let index = 0; index < data.length; index += 4) {
+    const r = data[index] ?? 0;
+    const g = data[index + 1] ?? 0;
+    const b = data[index + 2] ?? 0;
+    if (g > 180 && r < 80 && b < 80) {
+      data[index + 3] = 0;
+    }
+  }
+  return sharp(data, {
+    raw: {
+      width: info.width,
+      height: info.height,
+      channels: 4
+    }
+  }).png().toBuffer();
 }
 
 async function createUnevenWalkSheet(): Promise<Buffer> {

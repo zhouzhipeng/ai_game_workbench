@@ -10,6 +10,8 @@ export interface SliceSpriteSheetOptions {
   columns: number;
   keyColor: string;
   tolerance: number;
+  mattingMode?: MattingMode;
+  matteFrameBuffer?: FrameMattingRunner;
   centerFrames?: boolean;
   centerMode?: "frame" | "row";
   outputFrameWidth?: number;
@@ -18,6 +20,9 @@ export interface SliceSpriteSheetOptions {
   targetSubjectHeight?: number;
   directionLayout?: "grid" | "contact-2x2";
 }
+
+export type MattingMode = "chroma" | "birefnet";
+export type FrameMattingRunner = (input: Buffer) => Promise<Buffer>;
 
 export interface SlicedSpriteFrame {
   row: number;
@@ -141,6 +146,23 @@ export async function applySampledBackgroundKeyToBuffer(
   })
     .png()
     .toBuffer();
+}
+
+export async function matteFrameBuffer(
+  input: Buffer,
+  options: {
+    mattingMode?: MattingMode;
+    tolerance?: number;
+    matteFrameBuffer?: FrameMattingRunner;
+  } = {}
+): Promise<Buffer> {
+  if (options.mattingMode === "birefnet") {
+    if (!options.matteFrameBuffer) {
+      throw new Error("BiRefNet 抠图未配置。");
+    }
+    return options.matteFrameBuffer(input);
+  }
+  return applySampledBackgroundKeyToBuffer(input, { tolerance: getSpriteSheetKeyTolerance(options.tolerance ?? DEFAULT_CHROMA_KEY_TOLERANCE) });
 }
 
 export async function splitAndCenterFourDirectionFrameBuffer(
@@ -607,14 +629,22 @@ export async function sliceSpriteSheetBuffer(
     throw new Error("Sprite sheet grid is larger than the image");
   }
 
+  const mattingMode = options.mattingMode === "birefnet" ? "birefnet" : "chroma";
+  const sourceInput = mattingMode === "birefnet"
+    ? await matteFrameBuffer(input, {
+      mattingMode,
+      tolerance: options.tolerance,
+      matteFrameBuffer: options.matteFrameBuffer
+    })
+    : input;
   let frames: SlicedSpriteFrame[] = [];
-  if (options.directionLayout === "grid") {
-    frames = await sliceSpriteSheetByForegroundRows(input, options, metadata.width, metadata.height, frameWidth, frameHeight);
+  if (mattingMode === "chroma" && options.directionLayout === "grid") {
+    frames = await sliceSpriteSheetByForegroundRows(sourceInput, options, metadata.width, metadata.height, frameWidth, frameHeight);
   }
   if (frames.length === 0) {
     for (let row = 0; row < options.rows; row += 1) {
       for (let column = 0; column < options.columns; column += 1) {
-        const cropped = await sharp(input)
+        const cropped = await sharp(sourceInput)
           .extract({
             left: column * frameWidth,
             top: row * frameHeight,
@@ -628,7 +658,10 @@ export async function sliceSpriteSheetBuffer(
           index: column + 1,
           width: frameWidth,
           height: frameHeight,
-          buffer: await applySampledBackgroundKeyToBuffer(cropped, { tolerance: getSpriteSheetKeyTolerance(options.tolerance) })
+          buffer: mattingMode === "birefnet" ? cropped : await matteFrameBuffer(cropped, {
+            mattingMode: "chroma",
+            tolerance: options.tolerance
+          })
         });
       }
     }
@@ -637,21 +670,26 @@ export async function sliceSpriteSheetBuffer(
   if (options.directionLayout === "contact-2x2") {
     frames = mapContactSheet2x2ToDirectionRows(frames);
   }
-  if (options.outputFrameWidth && options.outputFrameHeight) {
+  if (options.outputFrameWidth && options.outputFrameHeight && options.normalizeSubjectScale) {
+    await normalizeTransparentFrameSubjectScale(frames, options.targetSubjectHeight, {
+      frameWidth: options.outputFrameWidth,
+      frameHeight: options.outputFrameHeight
+    });
+  } else if (options.outputFrameWidth && options.outputFrameHeight) {
     for (const frame of frames) {
       frame.buffer = await resizeTransparentBufferToSize(frame.buffer, options.outputFrameWidth, options.outputFrameHeight);
       frame.width = options.outputFrameWidth;
       frame.height = options.outputFrameHeight;
     }
   }
-  if (isGreenScreenKey(parseHexColor(options.keyColor))) {
+  if (mattingMode === "chroma" && isGreenScreenKey(parseHexColor(options.keyColor))) {
     for (const frame of frames) {
       frame.buffer = await applySpriteSheetGreenScreenCleanupToBuffer(
         await applyColorKeyToBuffer(frame.buffer, options.keyColor, getSpriteSheetKeyTolerance(options.tolerance))
       );
     }
   }
-  if (options.normalizeSubjectScale) {
+  if (options.normalizeSubjectScale && !(options.outputFrameWidth && options.outputFrameHeight)) {
     await normalizeTransparentFrameSubjectScale(frames, options.targetSubjectHeight);
   }
   if (options.centerFrames) {
@@ -670,7 +708,7 @@ export async function sliceSpriteSheetBuffer(
       }
     }
   }
-  if (isGreenScreenKey(parseHexColor(options.keyColor))) {
+  if (mattingMode === "chroma" && isGreenScreenKey(parseHexColor(options.keyColor))) {
     for (const frame of frames) {
       frame.buffer = await applySpriteSheetGreenScreenCleanupToBuffer(
         await applyColorKeyToBuffer(frame.buffer, options.keyColor, getSpriteSheetKeyTolerance(options.tolerance))
@@ -755,7 +793,10 @@ async function sliceSpriteSheetByForegroundRows(
         index: index + 1,
         width: fallbackFrameWidth,
         height: fallbackFrameHeight,
-        buffer: await applySampledBackgroundKeyToBuffer(cropped, { tolerance: getSpriteSheetKeyTolerance(options.tolerance) })
+        buffer: options.mattingMode === "birefnet" ? cropped : await matteFrameBuffer(cropped, {
+          mattingMode: "chroma",
+          tolerance: options.tolerance
+        })
       });
     }
   }
@@ -1067,7 +1108,11 @@ async function shiftTransparentFrameBuffer(
     .toBuffer();
 }
 
-async function normalizeTransparentFrameSubjectScale(frames: SlicedSpriteFrame[], targetSubjectHeight?: number): Promise<void> {
+async function normalizeTransparentFrameSubjectScale(
+  frames: SlicedSpriteFrame[],
+  targetSubjectHeight?: number,
+  outputCanvas?: SpriteSheetOptions
+): Promise<void> {
   const boxes = await Promise.all(frames.map(async (frame) => {
     const image = sharp(frame.buffer).ensureAlpha();
     const metadata = await image.metadata();
@@ -1094,9 +1139,11 @@ async function normalizeTransparentFrameSubjectScale(frames: SlicedSpriteFrame[]
     }
     const sourceWidth = getBoxWidth(box);
     const sourceHeight = getBoxHeight(box);
+    const outputWidth = outputCanvas?.frameWidth ?? frame.width;
+    const outputHeight = outputCanvas?.frameHeight ?? frame.height;
     const scale = normalizedTargetSubjectHeight
-      ? Math.min(targetHeight / sourceHeight, frame.height / sourceHeight)
-      : Math.min(targetHeight / sourceHeight, frame.width / sourceWidth, frame.height / sourceHeight);
+      ? Math.min(targetHeight / sourceHeight, outputHeight / sourceHeight)
+      : Math.min(targetHeight / sourceHeight, outputWidth / sourceWidth, outputHeight / sourceHeight);
     const resizedWidth = Math.max(1, Math.round(sourceWidth * scale));
     const resizedHeight = Math.max(1, Math.round(sourceHeight * scale));
     let subject = await sharp(frame.buffer)
@@ -1112,9 +1159,9 @@ async function normalizeTransparentFrameSubjectScale(frames: SlicedSpriteFrame[]
       })
       .png()
       .toBuffer();
-    const subjectWidth = Math.min(resizedWidth, frame.width);
-    const subjectHeight = Math.min(resizedHeight, frame.height);
-    if (resizedWidth > frame.width || resizedHeight > frame.height) {
+    const subjectWidth = Math.min(resizedWidth, outputWidth);
+    const subjectHeight = Math.min(resizedHeight, outputHeight);
+    if (resizedWidth > outputWidth || resizedHeight > outputHeight) {
       subject = await sharp(subject)
         .extract({
           left: Math.max(0, Math.floor((resizedWidth - subjectWidth) / 2)),
@@ -1125,12 +1172,12 @@ async function normalizeTransparentFrameSubjectScale(frames: SlicedSpriteFrame[]
         .png()
         .toBuffer();
     }
-    const left = Math.round((frame.width - subjectWidth) / 2);
-    const top = Math.round((frame.height - subjectHeight) / 2);
+    const left = Math.round((outputWidth - subjectWidth) / 2);
+    const top = Math.round((outputHeight - subjectHeight) / 2);
     frame.buffer = await sharp({
       create: {
-        width: frame.width,
-        height: frame.height,
+        width: outputWidth,
+        height: outputHeight,
         channels: 4,
         background: { r: 0, g: 0, b: 0, alpha: 0 }
       }
@@ -1138,6 +1185,8 @@ async function normalizeTransparentFrameSubjectScale(frames: SlicedSpriteFrame[]
       .composite([{ input: subject, left, top }])
       .png()
       .toBuffer();
+    frame.width = outputWidth;
+    frame.height = outputHeight;
   }
 }
 

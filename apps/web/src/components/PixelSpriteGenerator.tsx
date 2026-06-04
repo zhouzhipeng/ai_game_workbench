@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type { ProviderModelCatalog } from "@ai-game-workbench/core";
 import {
@@ -25,7 +25,10 @@ import {
   listPixelCharacters,
   processSpriteSheet,
   toAbsoluteApiUrl,
+  uploadModule02ActionReferenceImage,
   uploadModule02CharacterAsset,
+  type Module02ActionReferenceId,
+  type PixelSpriteMattingMode,
   type PixelCharacterAssetFile,
   type PixelCharacterAssets,
   type PixelCharacterFolder,
@@ -50,12 +53,15 @@ interface PixelSpriteDraft {
   keyColor: string;
   basePrompt: string;
   walkPrompt: string;
+  baseMattingMode: PixelSpriteMattingMode;
+  walkMattingMode: PixelSpriteMattingMode;
   tolerance: number;
   outputFrameWidth: number;
   outputFrameHeight: number;
   idleFps: number;
   walkFps: number;
   previewSize: number;
+  previewMoveSpeed: number;
   showGuides: boolean;
 }
 
@@ -72,6 +78,62 @@ const DEFAULT_KEY_COLOR = "#00ff00";
 const FIXED_PROCESS_FRAME_WIDTH = 64;
 const FIXED_PROCESS_FRAME_HEIGHT = 128;
 const FIXED_PROCESS_SUBJECT_HEIGHT = 96;
+const LEGACY_SHORT_BASE_PROMPT = "生成一个 2x2 接触表格式像素角色基准模板/待机，保持纯色背景，角色居中，四方向一致。";
+const LEGACY_SHORT_WALK_PROMPT = "基于基准模板/待机生成四方向步行动作 sprite sheet。保持角色比例、服装、配色一致。";
+const DEFAULT_BASE_PROMPT = `你是一名资深像素艺术家和动画师，专门为电子游戏设计可直接投入生产的 2D 角色精灵图。你的核心专长在于保证结构布局的一致性、角色造型的一致性，并严格遵循轴测（等距）或正交网格的限制。
+
+## 1. 核心限制与格式要求
+
+* 网格布局：你必须严格按照第一张参考图的四方向待机姿势，将所有角色排布在 2 行 2 列的功能性布局中。
+* 画布与宽高比：最终输出必须是 2×2 角色基准模板，四个角色各自位于方格中心，不要互相重叠。
+* 画面纯净度：图像中不得出现任何 UI 元素、文本标签、可见的网格线、辅助线或数字。
+* 背景：默认使用纯色、无缝的背景——标准的色键绿（绿幕），以便游戏开发者进行素材抠图。
+* 动作约束：每个方向只生成 1 个稳定待机姿势，不生成多帧循环，不生成走路、跑步、攻击、跳跃、转身或夸张动作。
+
+## 2. 输出排列
+
+在生成角色待机图时，必须精准地按以下顺序安排四个方格：
+
+* 左上：向下/正面待机
+* 右上：向左待机
+* 左下：向右待机
+* 右下：向上/背面待机
+
+## 3. 参考图
+
+第一张图作为待机姿势参考，只参考姿势、方向顺序和角色在方格中的居中方式。
+第二张图作为角色参考图，必须严格保持第二张图中的角色外观、发型、服装、配色、体型比例和像素颗粒感。
+生成像素风格的角色基准模板。
+
+2 行 2 列。
+无阴影。不要生成脚底影子、椭圆影子、接触阴影、投影、地面、文字、编号、辅助线或可见网格线。`;
+const DEFAULT_WALK_PROMPT = `你是一名资深像素艺术家和动画师，专门为电子游戏设计可直接投入生产的 2D 角色精灵图。你的核心专长在于保证结构布局的一致性、动作的流畅度，并严格遵循轴测（等距）或正交网格的限制。
+
+## 1. 核心限制与格式要求
+
+* 网格布局：你必须严格按照第一张参考图的动画序列，将所有角色图集排布在功能性的参考图网格布局中。
+* 画布与宽高比：最终输出的画布比例必须严格和第一张参考图一样。
+* 画面纯净度：图像中不得出现任何 UI 元素、文本标签、可见的网格线、辅助线或数字。
+* 背景：默认使用纯色、无缝的背景——标准的色键绿（绿幕），以便游戏开发者进行素材抠图。
+* 角色一致性：必须严格保持第二张图中的角色外观、发型、服装、配色、体型比例和像素颗粒感，只改变步行动作。
+
+## 2. 动画序列工作流
+
+在生成角色精灵图时，必须精准地按以下顺序安排各行内容：
+
+* 第一行：向下走动（10 帧）
+* 第二行：向左走动（10 帧）
+* 第三行：向右走动（10 帧）
+* 第四行：向上走动（10 帧）
+
+## 3. 参考图
+
+第一张图作为步行动作和四方向排布模板，只参考动作节奏、帧数、行列顺序、角色站位和网格比例。
+第二张图作为角色基准模板，必须严格保持第二张图中的角色外观、发型、服装、配色、体型比例和像素颗粒感。
+生成像素风格的四方向步行图。
+
+四行10列。
+无阴影。不要生成脚底影子、椭圆影子、接触阴影、投影、地面、文字、编号、辅助线或可见网格线。`;
 
 const PAGE_LABELS: Record<PixelPage, string> = {
   "base-template": "基准模板/待机",
@@ -91,14 +153,17 @@ const DEFAULT_DRAFT: PixelSpriteDraft = {
   imageModel: DEFAULT_IMAGE_MODEL,
   publicAssetBaseUrl: "",
   keyColor: DEFAULT_KEY_COLOR,
-  basePrompt: "生成一个 2x2 接触表格式像素角色基准模板/待机，保持纯色背景，角色居中，四方向一致。",
-  walkPrompt: "基于基准模板/待机生成四方向步行动作 sprite sheet。保持角色比例、服装、配色一致。",
+  basePrompt: DEFAULT_BASE_PROMPT,
+  walkPrompt: DEFAULT_WALK_PROMPT,
+  baseMattingMode: "birefnet",
+  walkMattingMode: "birefnet",
   tolerance: 34,
   outputFrameWidth: 64,
   outputFrameHeight: 128,
   idleFps: 2,
   walkFps: 8,
   previewSize: 192,
+  previewMoveSpeed: 120,
   showGuides: false
 };
 
@@ -155,6 +220,10 @@ export function PixelSpriteGenerator({ onBack }: PixelSpriteGeneratorProps) {
   const [previewFrameIndex, setPreviewFrameIndex] = useState(0);
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const [settingsStatus, setSettingsStatus] = useState("按分类调整模块 02 默认参数，保存后影响后续生成和处理。");
+  const [actionReferenceVersion, setActionReferenceVersion] = useState(0);
+  const [uploadingActionReferenceId, setUploadingActionReferenceId] = useState<Module02ActionReferenceId | null>(null);
+  const pressedDirectionsRef = useRef<DirectionKey[]>([]);
+  const previewMoveSpeedRef = useRef(draft.previewMoveSpeed);
 
   const idleAction = useMemo(() => actions.find((action) => action.id === "idle") ?? FALLBACK_ACTIONS.idle, [actions]);
   const walkAction = useMemo(() => actions.find((action) => action.id === "walk") ?? FALLBACK_ACTIONS.walk, [actions]);
@@ -217,6 +286,10 @@ export function PixelSpriteGenerator({ onBack }: PixelSpriteGeneratorProps) {
       return next;
     });
   }, [filteredProviderModelCatalog]);
+
+  useEffect(() => {
+    previewMoveSpeedRef.current = draft.previewMoveSpeed;
+  }, [draft.previewMoveSpeed]);
 
   useEffect(() => {
     let cancelled = false;
@@ -305,21 +378,54 @@ export function PixelSpriteGenerator({ onBack }: PixelSpriteGeneratorProps) {
         return;
       }
       event.preventDefault();
+      const pressedDirections = pressedDirectionsRef.current;
+      if (!pressedDirections.includes(direction)) {
+        pressedDirectionsRef.current = [...pressedDirections, direction];
+      }
       setActiveDirection(direction);
       setIsWalking(true);
-      setPosition((current) => movePosition(current, direction));
     };
     const handleKeyUp = (event: KeyboardEvent) => {
-      if (keyToDirection(event.key)) {
+      const direction = keyToDirection(event.key);
+      if (!direction) {
+        return;
+      }
+      pressedDirectionsRef.current = pressedDirectionsRef.current.filter((item) => item !== direction);
+      const nextDirection = pressedDirectionsRef.current[pressedDirectionsRef.current.length - 1];
+      if (nextDirection) {
+        setActiveDirection(nextDirection);
+      } else {
         setIsWalking(false);
       }
     };
+    const clearPressedDirections = () => {
+      pressedDirectionsRef.current = [];
+      setIsWalking(false);
+    };
     window.addEventListener("keydown", handleKeyDown);
     window.addEventListener("keyup", handleKeyUp);
+    window.addEventListener("blur", clearPressedDirections);
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keyup", handleKeyUp);
+      window.removeEventListener("blur", clearPressedDirections);
     };
+  }, []);
+
+  useEffect(() => {
+    let frameId = 0;
+    let lastTimestamp = 0;
+    const tick = (timestamp: number) => {
+      const direction = pressedDirectionsRef.current[pressedDirectionsRef.current.length - 1];
+      if (direction && lastTimestamp > 0) {
+        const deltaSeconds = Math.min(0.05, (timestamp - lastTimestamp) / 1000);
+        setPosition((current) => movePosition(current, direction, previewMoveSpeedRef.current * deltaSeconds));
+      }
+      lastTimestamp = timestamp;
+      frameId = window.requestAnimationFrame(tick);
+    };
+    frameId = window.requestAnimationFrame(tick);
+    return () => window.cancelAnimationFrame(frameId);
   }, []);
 
   const baseTemplatePreview = toPreview(assets.baseTemplate.output);
@@ -385,6 +491,24 @@ export function PixelSpriteGenerator({ onBack }: PixelSpriteGeneratorProps) {
       statusSetter("像素角色资源已上传。");
     } catch (error: unknown) {
       statusSetter(`像素角色资源上传失败：${getErrorMessage(error)}`);
+    }
+  };
+
+  const handleUploadActionReference = async (actionId: Module02ActionReferenceId, file: File | undefined) => {
+    if (!file) {
+      return;
+    }
+    const label = actionId === "idle" ? "基准模板/待机" : "步行";
+    setUploadingActionReferenceId(actionId);
+    setSettingsStatus(`正在上传${label}参考图...`);
+    try {
+      await uploadModule02ActionReferenceImage(actionId, file);
+      setActionReferenceVersion((current) => current + 1);
+      setSettingsStatus(`${label}参考图已更新。`);
+    } catch (error: unknown) {
+      setSettingsStatus(`参考图上传失败：${getErrorMessage(error)}`);
+    } finally {
+      setUploadingActionReferenceId(null);
     }
   };
 
@@ -484,6 +608,7 @@ export function PixelSpriteGenerator({ onBack }: PixelSpriteGeneratorProps) {
       columns: getActionColumns(isIdle ? idleAction : walkAction),
       keyColor: draft.keyColor,
       tolerance: draft.tolerance,
+      mattingMode: isIdle ? draft.baseMattingMode : draft.walkMattingMode,
       centerFrames: true,
       centerMode: isIdle ? "frame" : "row",
       outputFrameWidth: FIXED_PROCESS_FRAME_WIDTH,
@@ -496,8 +621,9 @@ export function PixelSpriteGenerator({ onBack }: PixelSpriteGeneratorProps) {
 
   const handleSliceOne = async (sliceKind: PixelSpriteSliceKind) => {
     const label = sliceKind === "idle" ? "待机" : "步行";
+    const mattingLabel = (sliceKind === "idle" ? draft.baseMattingMode : draft.walkMattingMode) === "birefnet" ? "BiRefNet" : "绿幕";
     setProcessingSliceKind(sliceKind);
-    setSliceStatus(`正在一键处理${label}，固定规格 64 x 128，角色高度 96px...`);
+    setSliceStatus(`正在一键处理${label}，使用${mattingLabel}抠图，固定规格 64 x 128，角色高度 96px...`);
     try {
       const result = await runSlice(sliceKind);
       setAssets((current) => applySliceFrames(current, sliceKind, result.frames));
@@ -694,12 +820,14 @@ export function PixelSpriteGenerator({ onBack }: PixelSpriteGeneratorProps) {
             <PixelModuleSettings
               activeGroup={activeSettingsGroup}
               draft={settingsDraft}
-              idleActionReferencePreview={actionReferencePreview(idleAction)}
+              idleActionReferencePreview={actionReferencePreview(idleAction, actionReferenceVersion)}
               imageModels={imageModels}
               status={settingsStatus}
-              walkActionReferencePreview={actionReferencePreview(walkAction)}
+              uploadingActionReferenceId={uploadingActionReferenceId}
+              walkActionReferencePreview={actionReferencePreview(walkAction, actionReferenceVersion)}
               onChangeDraft={updateSettingsDraft}
               onChangeGroup={setActiveSettingsGroup}
+              onUploadActionReference={handleUploadActionReference}
               onSave={handleSaveSettings}
             />
           ) : null}
@@ -802,9 +930,11 @@ function PixelModuleSettings({
   idleActionReferencePreview,
   imageModels,
   status,
+  uploadingActionReferenceId,
   walkActionReferencePreview,
   onChangeDraft,
   onChangeGroup,
+  onUploadActionReference,
   onSave
 }: {
   activeGroup: PixelSettingsGroup;
@@ -812,9 +942,11 @@ function PixelModuleSettings({
   idleActionReferencePreview: MediaPreview | null;
   imageModels: readonly { id: string; label: string }[];
   status: string;
+  uploadingActionReferenceId: Module02ActionReferenceId | null;
   walkActionReferencePreview: MediaPreview | null;
   onChangeDraft: <Key extends keyof PixelSpriteDraft>(key: Key, value: PixelSpriteDraft[Key]) => void;
   onChangeGroup: (group: PixelSettingsGroup) => void;
+  onUploadActionReference: (actionId: Module02ActionReferenceId, file: File | undefined) => void;
   onSave: () => void;
 }) {
   const group = SETTINGS_GROUPS.find((item) => item.id === activeGroup) ?? DEFAULT_SETTINGS_GROUP;
@@ -847,6 +979,12 @@ function PixelModuleSettings({
                     <div className="media-pane">
                       <div className="media-pane-title">idle 动作参考</div>
                       <ImagePreview alt="idle 动作参考图预览" preview={idleActionReferencePreview} emptyLabel="等待 idle 动作参考" />
+                      <div className="control-row">
+                        <FileButton
+                          label={uploadingActionReferenceId === "idle" ? "上传中" : "上传并覆盖 idle 参考图"}
+                          onFile={(file) => onUploadActionReference("idle", file)}
+                        />
+                      </div>
                     </div>
                   </div>
                 </SettingsSubsection>
@@ -880,6 +1018,23 @@ function PixelModuleSettings({
                     <textarea aria-label="设置基准模板/待机最终提示词" rows={5} value={draft.basePrompt} readOnly />
                   </label>
                 </SettingsSubsection>
+                <SettingsSubsection title="处理设置">
+                  <div className="form-grid">
+                    <label className="field">
+                      抠图方式
+                      <select aria-label="设置基准模板/待机抠图方式" value={draft.baseMattingMode} onChange={(event) => onChangeDraft("baseMattingMode", normalizeMattingMode(event.target.value))}>
+                        <option value="birefnet">BiRefNet</option>
+                        <option value="chroma">绿幕抠图</option>
+                      </select>
+                    </label>
+                    {draft.baseMattingMode === "chroma" ? (
+                      <label className="field">
+                        键色容差
+                        <input aria-label="设置基准模板/待机键色容差" type="number" min={0} max={255} value={draft.tolerance} onChange={(event) => onChangeDraft("tolerance", clampNumber(Number(event.target.value), 0, 255, draft.tolerance))} />
+                      </label>
+                    ) : null}
+                  </div>
+                </SettingsSubsection>
               </>
             ) : null}
 
@@ -890,6 +1045,12 @@ function PixelModuleSettings({
                     <div className="media-pane">
                       <div className="media-pane-title">walk 动作参考</div>
                       <ImagePreview alt="walk 动作参考图预览" preview={walkActionReferencePreview} emptyLabel="等待 walk 动作参考" />
+                      <div className="control-row">
+                        <FileButton
+                          label={uploadingActionReferenceId === "walk" ? "上传中" : "上传并覆盖 walk 参考图"}
+                          onFile={(file) => onUploadActionReference("walk", file)}
+                        />
+                      </div>
                     </div>
                   </div>
                 </SettingsSubsection>
@@ -918,9 +1079,18 @@ function PixelModuleSettings({
                 <SettingsSubsection title="处理设置">
                   <div className="form-grid">
                     <label className="field">
-                      键色容差
-                      <input aria-label="设置一键处理键色容差" type="number" min={0} max={255} value={draft.tolerance} onChange={(event) => onChangeDraft("tolerance", clampNumber(Number(event.target.value), 0, 255, draft.tolerance))} />
+                      抠图方式
+                      <select aria-label="设置步行抠图方式" value={draft.walkMattingMode} onChange={(event) => onChangeDraft("walkMattingMode", normalizeMattingMode(event.target.value))}>
+                        <option value="birefnet">BiRefNet</option>
+                        <option value="chroma">绿幕抠图</option>
+                      </select>
                     </label>
+                    {draft.walkMattingMode === "chroma" ? (
+                      <label className="field">
+                        键色容差
+                        <input aria-label="设置一键处理键色容差" type="number" min={0} max={255} value={draft.tolerance} onChange={(event) => onChangeDraft("tolerance", clampNumber(Number(event.target.value), 0, 255, draft.tolerance))} />
+                      </label>
+                    ) : null}
                   </div>
                 </SettingsSubsection>
               </>
@@ -940,6 +1110,10 @@ function PixelModuleSettings({
                   <label className="field">
                     显示尺寸
                     <input aria-label="设置角色预览显示尺寸" type="number" min={64} max={512} value={draft.previewSize} onChange={(event) => onChangeDraft("previewSize", clampNumber(Number(event.target.value), 64, 512, draft.previewSize))} />
+                  </label>
+                  <label className="field">
+                    移动速度
+                    <input aria-label="设置角色预览移动速度" type="number" min={20} max={600} value={draft.previewMoveSpeed} onChange={(event) => onChangeDraft("previewMoveSpeed", clampNumber(Number(event.target.value), 20, 600, draft.previewMoveSpeed))} />
                   </label>
                 </div>
                 <label className="toggle-field">
@@ -1120,9 +1294,10 @@ function toPreview(asset: PixelCharacterAssetFile | undefined): MediaPreview | n
   return asset ? { url: asset.url, label: asset.fileName } : null;
 }
 
-function actionReferencePreview(action: PixelSpriteActionTemplate): MediaPreview {
+function actionReferencePreview(action: PixelSpriteActionTemplate, version = 0): MediaPreview {
+  const cacheSuffix = version > 0 ? `?v=${version}` : "";
   return {
-    url: `/module02/action-references/${encodeURIComponent(action.referenceImage)}`,
+    url: `/module02/action-references/${encodeURIComponent(action.referenceImage)}${cacheSuffix}`,
     label: action.name
   };
 }
@@ -1175,18 +1350,17 @@ function keyToDirection(key: string): DirectionKey | undefined {
   }
 }
 
-function movePosition(current: { x: number; y: number }, direction: DirectionKey): { x: number; y: number } {
-  const step = 12;
+function movePosition(current: { x: number; y: number }, direction: DirectionKey, distance: number): { x: number; y: number } {
   if (direction === "up") {
-    return { ...current, y: current.y - step };
+    return { ...current, y: current.y - distance };
   }
   if (direction === "down") {
-    return { ...current, y: current.y + step };
+    return { ...current, y: current.y + distance };
   }
   if (direction === "left") {
-    return { ...current, x: current.x - step };
+    return { ...current, x: current.x - distance };
   }
-  return { ...current, x: current.x + step };
+  return { ...current, x: current.x + distance };
 }
 
 function isEditableTarget(target: EventTarget | null): boolean {
@@ -1203,6 +1377,10 @@ function clampNumber(value: number, min: number, max: number, fallback: number):
   return Math.min(max, Math.max(min, Math.round(value)));
 }
 
+function normalizeMattingMode(value: unknown): PixelSpriteMattingMode {
+  return value === "chroma" ? "chroma" : "birefnet";
+}
+
 function loadDraft(): PixelSpriteDraft {
   const raw = readStoredText(DRAFT_STORAGE_KEY, "") || readStoredText(LEGACY_DRAFT_STORAGE_KEY, "");
   if (!raw) {
@@ -1217,17 +1395,35 @@ function loadDraft(): PixelSpriteDraft {
 }
 
 function normalizeDraft(input: Partial<PixelSpriteDraft>): PixelSpriteDraft {
+  const basePrompt = normalizePromptValue(input.basePrompt, LEGACY_SHORT_BASE_PROMPT, DEFAULT_DRAFT.basePrompt);
+  const walkPrompt = normalizePromptValue(input.walkPrompt, LEGACY_SHORT_WALK_PROMPT, DEFAULT_DRAFT.walkPrompt);
   return {
     ...DEFAULT_DRAFT,
     ...input,
+    basePrompt,
+    walkPrompt,
+    baseMattingMode: normalizeMattingMode(input.baseMattingMode),
+    walkMattingMode: normalizeMattingMode(input.walkMattingMode),
     tolerance: clampNumber(Number(input.tolerance), 0, 255, DEFAULT_DRAFT.tolerance),
     outputFrameWidth: clampNumber(Number(input.outputFrameWidth), 16, 512, DEFAULT_DRAFT.outputFrameWidth),
     outputFrameHeight: clampNumber(Number(input.outputFrameHeight), 16, 512, DEFAULT_DRAFT.outputFrameHeight),
     idleFps: clampNumber(Number(input.idleFps), 1, 24, DEFAULT_DRAFT.idleFps),
     walkFps: clampNumber(Number(input.walkFps), 1, 24, DEFAULT_DRAFT.walkFps),
     previewSize: clampNumber(Number(input.previewSize), 64, 512, DEFAULT_DRAFT.previewSize),
+    previewMoveSpeed: clampNumber(Number(input.previewMoveSpeed), 20, 600, DEFAULT_DRAFT.previewMoveSpeed),
     showGuides: input.showGuides === true
   };
+}
+
+function normalizePromptValue(value: unknown, legacyShortValue: string, fallback: string): string {
+  if (typeof value !== "string") {
+    return fallback;
+  }
+  const trimmed = value.trim();
+  if (!trimmed || trimmed === legacyShortValue) {
+    return fallback;
+  }
+  return value;
 }
 
 function writeDraft(draft: PixelSpriteDraft): void {

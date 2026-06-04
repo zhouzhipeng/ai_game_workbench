@@ -135,6 +135,7 @@ export interface SpriteSheetGenerationResult {
 }
 
 export type PixelSpriteSliceKind = "idle" | "walk";
+export type PixelSpriteMattingMode = "birefnet" | "chroma";
 
 export interface ProcessSpriteSheetInput {
   storedName?: string;
@@ -145,6 +146,7 @@ export interface ProcessSpriteSheetInput {
   columns: number;
   keyColor: string;
   tolerance: number;
+  mattingMode?: PixelSpriteMattingMode;
   centerFrames?: boolean;
   centerMode?: "frame" | "row";
   outputFrameWidth?: number;
@@ -421,9 +423,18 @@ export interface SaveAdminProviderSettingsInput extends ProviderSettingsDocument
 export type Module01WorkflowConfig = Record<string, unknown>;
 
 export type Module01ReferenceImageKind = "style" | "walk" | "idle" | "run";
+export type Module02ActionReferenceId = "idle" | "walk";
 
 export interface Module01ReferenceImageAsset {
   kind: Module01ReferenceImageKind;
+  fileName: string;
+  storedName: string;
+  localPath?: string;
+  url: string;
+}
+
+export interface Module02ActionReferenceAsset {
+  actionId: Module02ActionReferenceId;
   fileName: string;
   storedName: string;
   localPath?: string;
@@ -749,6 +760,22 @@ export async function uploadModule01ReferenceImage(
     throw new Error(await readErrorMessage(response, `参考图保存失败：${response.status}`));
   }
   return response.json() as Promise<Module01ReferenceImageAsset>;
+}
+
+export async function uploadModule02ActionReferenceImage(
+  actionId: Module02ActionReferenceId,
+  file: File
+): Promise<Module02ActionReferenceAsset> {
+  const formData = new FormData();
+  formData.append("file", file);
+  const response = await fetch(`${API_BASE}/api/module02/action-references/${encodeURIComponent(actionId)}`, {
+    method: "POST",
+    body: formData
+  });
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, `模块 02 参考图保存失败：${response.status}`));
+  }
+  return response.json() as Promise<Module02ActionReferenceAsset>;
 }
 
 export async function getCharacterAssets(characterId: string): Promise<CharacterAssets> {
