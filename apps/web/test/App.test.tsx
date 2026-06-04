@@ -21,6 +21,7 @@ const NANO_IMAGE_MODEL = "google/gemini-3.1-flash-image-preview";
 const stylesPath = join(process.cwd(), "src", "styles.css");
 let videoStatusPayload: unknown;
 let module01WorkflowConfigPayload: unknown;
+let module01WorkflowConfigLoadDelayMs: number;
 let advancedCharacterAssetsPayload: unknown;
 let pixelCharacters: Array<{ id: string; name: string }>;
 let adminProviderSettingsPayload: ReturnType<typeof makeAdminProviderSettingsResponse>;
@@ -40,6 +41,7 @@ beforeEach(() => {
     localVideoUrl: `${characterBase}/base-character/walk-video/source.mp4`
   };
   module01WorkflowConfigPayload = null;
+  module01WorkflowConfigLoadDelayMs = 0;
   advancedCharacterAssetsPayload = undefined;
   pixelCharacters = [{ id: "pixel-hero", name: "pixel-hero" }];
   adminProviderSettingsPayload = makeAdminProviderSettingsResponse();
@@ -188,6 +190,9 @@ beforeEach(() => {
       if (init?.method === "PUT") {
         module01WorkflowConfigPayload = JSON.parse(String(init.body ?? "{}"));
         return jsonResponse({ config: module01WorkflowConfigPayload });
+      }
+      if (module01WorkflowConfigLoadDelayMs > 0) {
+        await new Promise((resolve) => window.setTimeout(resolve, module01WorkflowConfigLoadDelayMs));
       }
       return jsonResponse({ config: module01WorkflowConfigPayload });
     }
@@ -1926,6 +1931,46 @@ describe("App", () => {
       durationSeconds: 5,
       resolution: "1080p",
       firstFrameUrl: `https://assets.example.com${characterBase}/base-character/walk-video/input-4dir.png`
+    });
+  });
+
+  it("uses the APIMart Seedance model when an old OpenRouter workflow config is loaded", async () => {
+    module01WorkflowConfigPayload = {
+      videoModel: "bytedance/seedance-2.0",
+      videoDurationSeconds: 4,
+      videoResolution: "720p"
+    };
+    module01WorkflowConfigLoadDelayMs = 30;
+
+    openSpriteAnimator();
+
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/api/module01/workflow-config"))).toBe(true);
+    });
+    await act(async () => {
+      await new Promise((resolve) => window.setTimeout(resolve, module01WorkflowConfigLoadDelayMs + 10));
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "步行" }));
+    fireEvent.change(screen.getByLabelText("上传 2x2 步行图"), {
+      target: { files: [new File(["walk-sheet"], "walk-2x2.png", { type: "image/png" })] }
+    });
+    await screen.findByText(/步行图片已保存/);
+
+    fireEvent.click(screen.getByRole("button", { name: /提交视频任务/i }));
+
+    await waitFor(() => {
+      const videoCall = fetchMock.mock.calls.find(([url, init]) =>
+        String(url).includes("/api/generation/video") && (init as RequestInit | undefined)?.method === "POST"
+      );
+      expect(videoCall).toBeTruthy();
+      expect(readHeader(videoCall?.[1]?.headers, "x-ai-provider-id")).toBe("apimart");
+      expect(JSON.parse(String(videoCall?.[1]?.body))).toMatchObject({
+        model: "apimart/seedance-2.0",
+        durationSeconds: 4,
+        resolution: "720p",
+        firstFrameUrl: `https://assets.example.com${characterBase}/base-character/walk-video/input-4dir.png`
+      });
     });
   });
 

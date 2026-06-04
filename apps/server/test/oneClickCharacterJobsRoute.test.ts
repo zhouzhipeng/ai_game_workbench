@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -17,8 +17,6 @@ function makeStorageDir() {
   tempDirs.push(dir);
   return dir;
 }
-
-const TEST_OPENROUTER_API_KEY = "sk-or-v1-test";
 
 function makeStartPayload(overrides: Record<string, unknown> = {}) {
   return {
@@ -78,7 +76,6 @@ describe("one-click character jobs route", () => {
     const app = createApp({
       ffmpegPath: "ffmpeg",
       port: 8787,
-      openRouterApiKey: TEST_OPENROUTER_API_KEY,
       storageDir,
       oneClickCharacterJobRunner: async (_job, context) => {
         context.updateStep("create-character", "completed");
@@ -92,7 +89,19 @@ describe("one-click character jobs route", () => {
     const response = await app.inject({
       method: "POST",
       url: "/api/module01/one-click-character-jobs",
-      payload: makeStartPayload()
+      headers: {
+        "x-ai-provider-id": "apimart",
+        "x-ai-provider-api-key": "sk-apimart-test"
+      },
+      payload: makeStartPayload({
+        firstFrame: {
+          model: "apimart/gpt-image-2",
+          prompt: "base template prompt",
+          targetSize: 1024,
+          keyColor: "#00ff00",
+          style: "cel-anime"
+        }
+      })
     });
 
     expect(response.statusCode).toBe(202);
@@ -118,6 +127,49 @@ describe("one-click character jobs route", () => {
     expect(statusResponse.statusCode).toBe(200);
     expect(statusResponse.json().job.progressPercent).toBeGreaterThanOrEqual(0);
     expect(statusResponse.json().job.progressPercent).toBeLessThanOrEqual(100);
+
+    await app.close();
+  });
+
+  it("starts with APIMart when an old workflow config saved the OpenRouter Seedance model", async () => {
+    const storageDir = makeStorageDir();
+    mkdirSync(join(storageDir, "config"), { recursive: true });
+    writeFileSync(join(storageDir, "config", "module01-workflow.json"), JSON.stringify({
+      videoModel: "bytedance/seedance-2.0",
+      videoDurationSeconds: 4,
+      videoResolution: "720p"
+    }));
+    const app = createApp({
+      ffmpegPath: "ffmpeg",
+      port: 8787,
+      storageDir,
+      oneClickCharacterJobRunner: async () => undefined
+    });
+    await app.ready();
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/module01/one-click-character-jobs",
+      headers: {
+        "x-ai-provider-id": "apimart",
+        "x-ai-provider-api-key": "sk-apimart-test"
+      },
+      payload: makeStartPayload({
+        firstFrame: {
+          model: "apimart/gpt-image-2",
+          prompt: "base template prompt",
+          targetSize: 1024,
+          keyColor: "#00ff00",
+          style: "cel-anime"
+        }
+      })
+    });
+
+    expect(response.statusCode).toBe(202);
+    expect(response.json().job).toMatchObject({
+      characterId: "hero",
+      status: "running"
+    });
 
     await app.close();
   });

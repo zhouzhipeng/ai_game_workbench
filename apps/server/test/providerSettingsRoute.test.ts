@@ -19,7 +19,7 @@ function makeStorageDir() {
 }
 
 describe("provider settings routes", () => {
-  it("publishes enabled provider models with APIMart as the default image model", async () => {
+  it("publishes enabled provider models with APIMart defaults", async () => {
     const app = createApp({
       ffmpegPath: "ffmpeg",
       port: 8787,
@@ -47,7 +47,7 @@ describe("provider settings routes", () => {
     expect(response.json()).toMatchObject({
       defaults: {
         imageModelId: "apimart/gpt-image-2",
-        videoModelId: "bytedance/seedance-2.0"
+        videoModelId: "apimart/seedance-2.0"
       },
       imageModels: expect.arrayContaining([
         expect.objectContaining({

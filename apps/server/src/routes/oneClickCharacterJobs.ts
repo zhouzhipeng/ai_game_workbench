@@ -3,6 +3,7 @@ import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { dirname } from "node:path";
 import type { FastifyInstance, InjectOptions } from "fastify";
+import { DEFAULT_PROVIDER_MODEL_DEFAULTS, type GenerationCapability } from "@ai-game-workbench/core";
 import type { AppConfig } from "../config";
 import {
   createCharacterFolder,
@@ -13,8 +14,8 @@ import {
   resolveCharacterPath
 } from "../characterStorage";
 import { readModule01WorkflowConfig } from "./workflowConfig";
-import { resolveGenerationProviderModel } from "../providerSettings";
-import type { ProviderRequestAuth } from "../providerSettings";
+import { readProviderSettingsDocument, resolveGenerationProviderModel } from "../providerSettings";
+import type { ProviderRequestAuth, ResolvedProviderModel } from "../providerSettings";
 
 type AdvancedActionKind = "run" | "attack-1" | "jump";
 type OneClickStepStatus = "pending" | "running" | "completed" | "failed" | "skipped";
@@ -214,15 +215,20 @@ async function validateStartInput(
     return { error: true, statusCode: firstFrameModel.statusCode, body: { error: firstFrameModel.error } };
   }
   const directionImageModel = readString(workflowConfig, "directionImageModel") || input.firstFrame.model;
-  const directionModel = await resolveGenerationProviderModel(config, directionImageModel, "image", providerAuth);
+  const directionModel = await resolveWorkflowGenerationProviderModel(config, directionImageModel, "image", providerAuth);
   if ("error" in directionModel) {
     return { error: true, statusCode: directionModel.statusCode, body: { error: directionModel.error } };
   }
-  const videoModel = readString(workflowConfig, "videoModel") || "bytedance/seedance-2.0";
-  const videoProviderModel = await resolveGenerationProviderModel(config, videoModel, "video", providerAuth);
+  const videoModel = readString(workflowConfig, "videoModel") || DEFAULT_PROVIDER_MODEL_DEFAULTS.videoModelId;
+  const videoProviderModel = await resolveWorkflowGenerationProviderModel(config, videoModel, "video", providerAuth);
   if ("error" in videoProviderModel) {
     return { error: true, statusCode: videoProviderModel.statusCode, body: { error: videoProviderModel.error } };
   }
+  const normalizedWorkflowConfig = {
+    ...workflowConfig,
+    directionImageModel: directionModel.model.id,
+    videoModel: videoProviderModel.model.id
+  };
 
   return {
     characterId,
@@ -236,9 +242,44 @@ async function validateStartInput(
       style: input.firstFrame.style?.trim() || "cel-anime"
     },
     actions,
-    workflowConfig,
+    workflowConfig: normalizedWorkflowConfig,
     providerAuthHeaders: buildProviderAuthHeaders(providerAuth)
   };
+}
+
+async function resolveWorkflowGenerationProviderModel(
+  config: OneClickCharacterRouteConfig,
+  modelId: string,
+  capability: GenerationCapability,
+  providerAuth: ProviderRequestAuth
+): Promise<ResolvedProviderModel | { statusCode: number; error: string }> {
+  const resolved = await resolveGenerationProviderModel(config, modelId, capability, providerAuth);
+  if (!("error" in resolved) || !isSelectedProviderMismatchError(resolved.error)) {
+    return resolved;
+  }
+  const fallbackModelId = await chooseSelectedProviderModelId(config, capability, providerAuth);
+  if (!fallbackModelId || fallbackModelId === modelId) {
+    return resolved;
+  }
+  return resolveGenerationProviderModel(config, fallbackModelId, capability, providerAuth);
+}
+
+async function chooseSelectedProviderModelId(
+  config: OneClickCharacterRouteConfig,
+  capability: GenerationCapability,
+  providerAuth: ProviderRequestAuth
+): Promise<string | undefined> {
+  const settings = await readProviderSettingsDocument(config);
+  const enabledModels = settings.models.filter((model) => model.enabled && model.capability === capability);
+  const selectedProviderId = providerAuth.providerId?.trim();
+  if (selectedProviderId) {
+    return enabledModels.find((model) => model.providerId === selectedProviderId)?.id;
+  }
+  return capability === "video" ? settings.defaults.videoModelId : settings.defaults.imageModelId;
+}
+
+function isSelectedProviderMismatchError(error: string): boolean {
+  return error.startsWith("Selected provider does not match model provider:");
 }
 
 function buildSteps(actions: { run: boolean; attack1: boolean; jump: boolean }): OneClickJobStep[] {
@@ -349,7 +390,7 @@ async function runDefaultOneClickJob(
   const directionSize = readNumber(workflow, "directionImageGenerationSize", input.firstFrame.targetSize);
   const walkPrompt = requireConfigString(workflow, "finalDirectionWalkPrompt", "四方向步行提示词");
   const idlePrompt = requireConfigString(workflow, "finalDirectionIdlePrompt", "四方向待机提示词");
-  const videoModel = readString(workflow, "videoModel") || "bytedance/seedance-2.0";
+  const videoModel = readString(workflow, "videoModel") || DEFAULT_PROVIDER_MODEL_DEFAULTS.videoModelId;
   const videoDurationSeconds = readNumber(workflow, "videoDurationSeconds", 4);
   const videoResolution = readString(workflow, "videoResolution") || "720p";
   const videoPrompt = requireConfigString(workflow, "finalVideoPrompt", "步行视频提示词");

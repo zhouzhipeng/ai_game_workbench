@@ -173,7 +173,7 @@ export const DEFAULT_PROVIDER_MODEL_PRESETS: readonly ProviderModelPreset[] = [
 
 export const DEFAULT_PROVIDER_MODEL_DEFAULTS = {
   imageModelId: "apimart/gpt-image-2",
-  videoModelId: "bytedance/seedance-2.0"
+  videoModelId: "apimart/seedance-2.0"
 } satisfies ProviderModelDefaults;
 
 function rangeInclusive(start: number, end: number): number[] {

@@ -319,6 +319,14 @@ function rangeInclusive(start: number, end: number): number[] {
 
 const VIDEO_MODELS = [
   {
+    id: "apimart/seedance-2.0",
+    label: "Seedance 2.0",
+    durationOptions: rangeInclusive(4, 15),
+    defaultDurationSeconds: 4,
+    resolutionOptions: ["480p", "720p", "1080p"],
+    defaultResolution: "720p"
+  },
+  {
     id: "bytedance/seedance-2.0",
     label: "Seedance 2.0",
     durationOptions: rangeInclusive(4, 15),
@@ -327,7 +335,7 @@ const VIDEO_MODELS = [
     defaultResolution: "720p"
   }
 ] satisfies readonly VideoModelOption[];
-const DEFAULT_VIDEO_MODEL = "bytedance/seedance-2.0";
+const DEFAULT_VIDEO_MODEL = "apimart/seedance-2.0";
 const FPS_MAX = 300;
 const GODOT_EXPORT_SIZE_OPTIONS = [256, 384, 512, 1024] as const;
 type GodotExportSize = (typeof GODOT_EXPORT_SIZE_OPTIONS)[number];
@@ -634,16 +642,31 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
     if (!filteredProviderModelCatalog) {
       return;
     }
-    setImageModel((current) => filteredProviderModelCatalog.imageModels.some((model) => model.id === current)
-      ? current
-      : filteredProviderModelCatalog.defaults.imageModelId);
-    setDirectionImageModel((current) => filteredProviderModelCatalog.imageModels.some((model) => model.id === current)
-      ? current
-      : filteredProviderModelCatalog.defaults.imageModelId);
-    setVideoModel((current) => filteredProviderModelCatalog.videoModels.some((model) => model.id === current)
-      ? current
-      : filteredProviderModelCatalog.defaults.videoModelId);
-  }, [filteredProviderModelCatalog]);
+    const nextImageModel = chooseCompatibleModelId(
+      filteredProviderModelCatalog.imageModels,
+      imageModel,
+      filteredProviderModelCatalog.defaults.imageModelId
+    );
+    if (nextImageModel !== imageModel) {
+      setImageModel(nextImageModel);
+    }
+    const nextDirectionImageModel = chooseCompatibleModelId(
+      filteredProviderModelCatalog.imageModels,
+      directionImageModel,
+      filteredProviderModelCatalog.defaults.imageModelId
+    );
+    if (nextDirectionImageModel !== directionImageModel) {
+      setDirectionImageModel(nextDirectionImageModel);
+    }
+    const nextVideoModel = chooseCompatibleModelId(
+      filteredProviderModelCatalog.videoModels,
+      videoModel,
+      filteredProviderModelCatalog.defaults.videoModelId
+    );
+    if (nextVideoModel !== videoModel) {
+      setVideoModel(nextVideoModel);
+    }
+  }, [directionImageModel, filteredProviderModelCatalog, imageModel, videoModel]);
 
   useEffect(() => {
     let isCancelled = false;
@@ -4225,6 +4248,14 @@ function isKnownImageStyle(style: string): boolean {
 
 function isKnownVideoModel(model: string): boolean {
   return VIDEO_MODELS.some((item) => item.id === model);
+}
+
+function chooseCompatibleModelId(
+  models: readonly { id: string }[],
+  modelId: string,
+  fallbackModelId: string
+): string {
+  return models.some((model) => model.id === modelId) ? modelId : fallbackModelId;
 }
 
 function toImageModelOptions(catalog: ProviderModelCatalog): ImageModelOption[] {
