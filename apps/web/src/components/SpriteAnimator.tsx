@@ -804,7 +804,7 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
     setIsPlayingFrames(false);
   };
 
-  const hydrateCharacterAssets = async (characterId: string) => {
+  const hydrateCharacterAssets = async (characterId: string, options: { preserveStatuses?: boolean } = {}) => {
     const hydrationVersion = assetHydrationVersionRef.current + 1;
     assetHydrationVersionRef.current = hydrationVersion;
     try {
@@ -820,31 +820,53 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
       const walkDirection = toMediaPreview(assets.baseCharacter.walkDirectionTemplate, version);
       const walkVideoInput = toMediaPreview(assets.baseCharacter.walkVideoInput, version);
       const walkVideoSource = toMediaPreview(assets.baseCharacter.walkVideoSource, version);
-      setCharacterReferenceFile(null);
-      setDirectionBaseTemplateFile(null);
-      setCharacterReferencePreview(characterReference);
-      setUploadedCharacterReferencePublicUrl(assets.baseTemplate.characterReference ? toPublicAssetUrl(assets.baseTemplate.characterReference.url) : "");
-      setFirstFrameOutputPreview(baseTemplateOutput);
-      setDirectionBaseTemplatePreview(directionBaseTemplate);
-      setIdleDirectionOutputPreview(idleDirection);
-      setWalkDirectionOutputPreview(walkDirection);
-      setVideoInputPreview(walkVideoInput ?? walkDirection);
-      setVideoOutputPreview(walkVideoSource);
-      setFrameVideoInputPreview(walkVideoSource);
-      setVideoJobId(walkVideoSource ? (assets.baseCharacter.loopExport?.jobId ?? "existing-video") : "");
-      setFrames([]);
-      setFourDirectionResult(assets.baseCharacter.loopExport ? normalizeFourDirectionResult(assets.baseCharacter.loopExport) : null);
-      setAdvancedActions({
+      const loadedAdvancedActions = {
         run: advancedAssetToState(assets.advancedCharacter?.run, "等待步行图片，可先生成跑步首帧。"),
         "attack-1": advancedAssetToState(assets.advancedCharacter?.attack1, "等待待机处理结果，可准备攻击起始帧。"),
         jump: advancedAssetToState(assets.advancedCharacter?.jump, "等待待机处理结果，可准备跳跃起始帧。")
-      });
-      setActiveFrameIndex(0);
-      setIsPlayingFrames(false);
-      setFirstFrameStatus(baseTemplateOutput || characterReference ? "已自动载入该角色已有参考图和基准模板。" : "等待角色参考图或直接生成基准模板。");
-      setDirectionTemplateStatus(directionBaseTemplate || idleDirection || walkDirection ? "已自动载入该角色已有模板文件。" : "等待角色基准模板。先生成步行 2x2，再基于步行图生成待机 2x2。");
-      setVideoStatus(walkVideoSource ? "已自动载入该角色已有步行视频。" : walkVideoInput || walkDirection ? "已自动载入该角色已有步行图片，可以提交视频任务。" : "等待步行图片，或直接上传 2x2 步行图。");
-      setFrameStatus(assets.baseCharacter.loopExport ? "已自动载入该角色已有循环导出结果。" : walkVideoSource ? "已自动载入该角色已有视频，可以处理帧。" : "等待视频下载完成。");
+      };
+      if (options.preserveStatuses) {
+        setCharacterReferencePreview((current) => current ?? characterReference);
+        setUploadedCharacterReferencePublicUrl((current) => current || (assets.baseTemplate.characterReference ? toPublicAssetUrl(assets.baseTemplate.characterReference.url) : ""));
+        setFirstFrameOutputPreview((current) => current ?? baseTemplateOutput);
+        setDirectionBaseTemplatePreview((current) => current ?? directionBaseTemplate);
+        setIdleDirectionOutputPreview((current) => current ?? idleDirection);
+        setWalkDirectionOutputPreview((current) => current ?? walkDirection);
+        setVideoInputPreview((current) => current ?? walkVideoInput ?? walkDirection);
+        setVideoOutputPreview((current) => current ?? walkVideoSource);
+        setFrameVideoInputPreview((current) => current ?? walkVideoSource);
+        setVideoJobId((current) => current || (walkVideoSource ? (assets.baseCharacter.loopExport?.jobId ?? "existing-video") : ""));
+        setFourDirectionResult((current) => current ?? (assets.baseCharacter.loopExport ? normalizeFourDirectionResult(assets.baseCharacter.loopExport) : null));
+        setAdvancedActions((current) => ({
+          run: mergeLoadedAdvancedActionState(current.run, loadedAdvancedActions.run),
+          "attack-1": mergeLoadedAdvancedActionState(current["attack-1"], loadedAdvancedActions["attack-1"]),
+          jump: mergeLoadedAdvancedActionState(current.jump, loadedAdvancedActions.jump)
+        }));
+      } else {
+        setCharacterReferenceFile(null);
+        setDirectionBaseTemplateFile(null);
+        setCharacterReferencePreview(characterReference);
+        setUploadedCharacterReferencePublicUrl(assets.baseTemplate.characterReference ? toPublicAssetUrl(assets.baseTemplate.characterReference.url) : "");
+        setFirstFrameOutputPreview(baseTemplateOutput);
+        setDirectionBaseTemplatePreview(directionBaseTemplate);
+        setIdleDirectionOutputPreview(idleDirection);
+        setWalkDirectionOutputPreview(walkDirection);
+        setVideoInputPreview(walkVideoInput ?? walkDirection);
+        setVideoOutputPreview(walkVideoSource);
+        setFrameVideoInputPreview(walkVideoSource);
+        setVideoJobId(walkVideoSource ? (assets.baseCharacter.loopExport?.jobId ?? "existing-video") : "");
+        setFrames([]);
+        setFourDirectionResult(assets.baseCharacter.loopExport ? normalizeFourDirectionResult(assets.baseCharacter.loopExport) : null);
+        setAdvancedActions(loadedAdvancedActions);
+        setActiveFrameIndex(0);
+        setIsPlayingFrames(false);
+      }
+      if (!options.preserveStatuses) {
+        setFirstFrameStatus(baseTemplateOutput || characterReference ? "已自动载入该角色已有参考图和基准模板。" : "等待角色参考图或直接生成基准模板。");
+        setDirectionTemplateStatus(directionBaseTemplate || idleDirection || walkDirection ? "已自动载入该角色已有模板文件。" : "等待角色基准模板。先生成步行 2x2，再基于步行图生成待机 2x2。");
+        setVideoStatus(walkVideoSource ? "已自动载入该角色已有步行视频。" : walkVideoInput || walkDirection ? "已自动载入该角色已有步行图片，可以提交视频任务。" : "等待步行图片，或直接上传 2x2 步行图。");
+        setFrameStatus(assets.baseCharacter.loopExport ? "已自动载入该角色已有循环导出结果。" : walkVideoSource ? "已自动载入该角色已有视频，可以处理帧。" : "等待视频下载完成。");
+      }
     } catch (error: unknown) {
       clearLoadedCharacterAssets();
       setCharacterStatus(`角色文件加载失败：${getErrorMessage(error)}`);
@@ -960,6 +982,7 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
       .then((asset) => {
         setUploadedCharacterReferencePublicUrl(asset.publicUrl);
         setFirstFrameStatus(`角色参考图已保存：${asset.fileName}`);
+        void hydrateCharacterAssets(characterId, { preserveStatuses: true });
       })
       .catch((error: unknown) => {
         setFirstFrameStatus(`角色参考图保存失败：${getErrorMessage(error)}`);
@@ -1108,6 +1131,7 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
           name: asset.fileName,
           publicUrl: asset.publicUrl
         } : current);
+        void hydrateCharacterAssets(characterId, { preserveStatuses: true });
         setVideoStatus(`步行图片已保存：${asset.fileName}，可以提交视频任务。`);
       })
       .catch((error: unknown) => {
@@ -1152,6 +1176,7 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
       };
       setFirstFrameOutputPreview(preview);
       setFirstFrameStatus("角色基准模板生成完成，已进入基础角色生成数据流。");
+      void hydrateCharacterAssets(characterId, { preserveStatuses: true });
       setDirectionBaseTemplateFile(null);
       setDirectionBaseTemplatePreview(null);
       setDirectionTemplateStatus("角色基准模板已就绪，请先生成步行 2x2，再基于步行图生成待机 2x2。");
@@ -1205,6 +1230,7 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
         setVideoStatus("步行图片已就绪，可以提交步行视频任务。");
       }
       setDirectionTemplateStatus(`${outputLabel} 2x2 生成完成。`);
+      void hydrateCharacterAssets(characterId, { preserveStatuses: true });
     } catch (error: unknown) {
       setDirectionTemplateStatus(`${outputLabel} 2x2 生成失败：${getErrorMessage(error)}`);
     } finally {
@@ -1288,6 +1314,7 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
       setFrameVideoInputPreview(preview);
       setVideoStatus(`视频已下载到 storage/characters/${characterId}/base-character/walk-video/source.mp4`);
       setFrameStatus("视频已载入，可以处理帧。");
+      void hydrateCharacterAssets(characterId, { preserveStatuses: true });
       return;
     }
     if (result.status === "failed") {
@@ -1330,6 +1357,7 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
       setActiveFrameIndex(0);
       setIsPlayingFrames(true);
       setFrameStatus(`步行处理完成：抽帧 ${result.frameCount} 帧，已生成走路循环。`);
+      void hydrateCharacterAssets(characterId, { preserveStatuses: true });
     } catch (error: unknown) {
       setFrameStatus(`步行处理失败：${getErrorMessage(error)}`);
     } finally {
@@ -1359,6 +1387,7 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
         idle
       }) : current);
       setFrameStatus("待机处理完成。");
+      void hydrateCharacterAssets(characterId, { preserveStatuses: true });
     } catch (error: unknown) {
       setFrameStatus(`待机处理失败：${getErrorMessage(error)}`);
     } finally {
@@ -1401,6 +1430,7 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
         setVideoJobId(asset.jobId);
         setFrameVideoInputPreview(preview);
         setFrameStatus(`帧处理视频已载入：${asset.fileName}，可以处理视频帧。`);
+        void hydrateCharacterAssets(characterId, { preserveStatuses: true });
       })
       .catch((error: unknown) => {
         setFrameStatus(`帧处理视频保存失败：${getErrorMessage(error)}`);
@@ -1602,6 +1632,7 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
         inputPreview: preview,
         status: "跑步首帧已生成，可提交跑步视频任务。"
       });
+      void hydrateCharacterAssets(characterId, { preserveStatuses: true });
     } catch (error: unknown) {
       updateAdvancedAction("run", { status: `跑步首帧生成失败：${getErrorMessage(error)}` });
     } finally {
@@ -1641,6 +1672,7 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
         ...(actionKind === "attack-1" ? { middleFramePreview: null } : {}),
         status: `${label}起始帧已准备，可提交视频任务。`
       });
+      void hydrateCharacterAssets(characterId, { preserveStatuses: true });
     } catch (error: unknown) {
       updateAdvancedAction(actionKind, { status: `${label}起始帧准备失败：${getErrorMessage(error)}` });
     } finally {
@@ -1693,6 +1725,7 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
         },
         status: "攻击中间帧已生成，可提交攻击视频任务。"
       });
+      void hydrateCharacterAssets(characterId, { preserveStatuses: true });
     } catch (error: unknown) {
       updateAdvancedAction(actionKind, { status: `攻击中间帧生成失败：${getErrorMessage(error)}` });
     } finally {
@@ -1779,6 +1812,7 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
         outputPreview: preview,
         status: `${label}视频已下载到 storage/characters/${characterId}/advanced-character/${actionKind}/video/source.mp4`
       });
+      void hydrateCharacterAssets(characterId, { preserveStatuses: true });
       return;
     }
     if (result.status === "failed") {
@@ -1829,6 +1863,7 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
         result: normalizeFourDirectionResult(result),
         status: `${label} 处理完成：抽帧 ${result.frameCount} 帧。`
       });
+      void hydrateCharacterAssets(characterId, { preserveStatuses: true });
     } catch (error: unknown) {
       updateAdvancedAction(actionKind, { status: `${label} 处理失败：${getErrorMessage(error)}` });
     } finally {
@@ -4575,6 +4610,19 @@ function advancedAssetToState(asset: AdvancedActionAssets | undefined, fallbackS
     middleFramePreview: toMediaPreview(asset.middleFrame, version),
     jobId: asset.videoSource ? (asset.export?.jobId ?? "existing-video") : "",
     result: asset.export ? normalizeFourDirectionResult(asset.export) : null
+  };
+}
+
+function mergeLoadedAdvancedActionState(current: AdvancedActionState, loaded: AdvancedActionState): AdvancedActionState {
+  return {
+    ...current,
+    keyframePreview: current.keyframePreview ?? loaded.keyframePreview,
+    inputPreview: current.inputPreview ?? loaded.inputPreview,
+    outputPreview: current.outputPreview ?? loaded.outputPreview,
+    middleFramePreview: current.middleFramePreview ?? loaded.middleFramePreview,
+    jobId: current.jobId || loaded.jobId,
+    result: current.result ?? loaded.result,
+    statusDetails: current.statusDetails || loaded.statusDetails
   };
 }
 
