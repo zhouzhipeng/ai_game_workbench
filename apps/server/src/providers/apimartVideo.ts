@@ -31,6 +31,10 @@ export function buildApimartVideoGenerationPayload(input: BuildApimartVideoGener
   const referenceUrls = (input.inputReferenceUrls ?? []).map((url) => url.trim()).filter(Boolean);
   const firstFrameUrl = input.firstFrameUrl.trim();
   const lastFrameUrl = input.lastFrameUrl?.trim();
+  const imageWithRoles = [
+    { url: firstFrameUrl, role: "first_frame" },
+    ...(lastFrameUrl ? [{ url: lastFrameUrl, role: "last_frame" }] : [])
+  ];
   return {
     model: input.model,
     prompt: input.prompt,
@@ -38,16 +42,9 @@ export function buildApimartVideoGenerationPayload(input: BuildApimartVideoGener
     size: "adaptive",
     duration: input.durationSeconds ?? 5,
     generate_audio: false,
-    ...(lastFrameUrl ? {
-      image_with_roles: [
-        { url: firstFrameUrl, role: "first_frame" },
-        { url: lastFrameUrl, role: "last_frame" }
-      ]
-    } : {
-      image_urls: input.referenceOnly && referenceUrls.length > 0
-        ? referenceUrls
-        : [firstFrameUrl, ...referenceUrls]
-    })
+    ...(input.referenceOnly && referenceUrls.length > 0
+      ? { image_urls: referenceUrls }
+      : { image_with_roles: imageWithRoles })
   };
 }
 

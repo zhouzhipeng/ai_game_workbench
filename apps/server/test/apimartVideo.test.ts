@@ -21,8 +21,11 @@ describe("APIMart video provider client", () => {
           resolution: "720p",
           size: "adaptive",
           duration: 5,
-          image_urls: ["https://assets.example.com/walk.png"]
+          image_with_roles: [
+            { url: "https://assets.example.com/walk.png", role: "first_frame" }
+          ]
         });
+        expect(JSON.parse(String(init?.body ?? "{}"))).not.toHaveProperty("image_urls");
         return Response.json({
           code: 200,
           data: [{ status: "submitted", task_id: "task_video_123" }]
@@ -70,6 +73,24 @@ describe("APIMart video provider client", () => {
       jobId: "task_video_123",
       status: "completed",
       videoUrl: "https://upload.apimart.ai/f/video/task_video_123.mp4"
+    });
+  });
+
+  it("keeps reference-only APIMart videos on image_urls", () => {
+    expect(buildApimartVideoGenerationPayload({
+      model: "doubao-seedance-2.0",
+      prompt: "attack through the middle frame",
+      firstFrameUrl: "https://assets.example.com/attack-start.png",
+      referenceOnly: true,
+      inputReferenceUrls: [
+        "https://assets.example.com/attack-start.png",
+        "https://assets.example.com/attack-middle.png"
+      ]
+    })).toMatchObject({
+      image_urls: [
+        "https://assets.example.com/attack-start.png",
+        "https://assets.example.com/attack-middle.png"
+      ]
     });
   });
 });
