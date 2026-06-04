@@ -801,6 +801,11 @@ describe("App", () => {
       String(url).endsWith("/api/module02/generation/sprite-sheet")
       && String((init as RequestInit).body).includes('"actionId":"idle"')
     )).toBe(true));
+    fireEvent.click(screen.getByRole("button", { name: "一键处理待机" }));
+    await waitFor(() => expect(fetchMock.mock.calls.some(([url, init]) =>
+      String(url).endsWith("/api/module02/processing/sprite-sheet")
+      && String((init as RequestInit).body).includes('"sliceKind":"idle"')
+    )).toBe(true));
 
     fireEvent.click(screen.getByRole("button", { name: "步行" }));
     expect(screen.queryByAltText("walk 动作参考图预览")).not.toBeInTheDocument();
@@ -814,7 +819,7 @@ describe("App", () => {
       && String((init as RequestInit).body).includes('"actionId":"walk"')
     )).toBe(true));
 
-    fireEvent.click(screen.getByRole("button", { name: "执行一键处理" }));
+    fireEvent.click(screen.getByRole("button", { name: "一键处理步行" }));
 
     await waitFor(() => {
       const processingCalls = fetchMock.mock.calls
@@ -824,12 +829,18 @@ describe("App", () => {
         expect.objectContaining({
           pixelCharacterId: "pixel-hero",
           sliceKind: "walk",
-          sourceUrl: `${pixelCharacterBase}/walk-template/output.png`
+          sourceUrl: `${pixelCharacterBase}/walk-template/output.png`,
+          outputFrameWidth: 64,
+          outputFrameHeight: 128,
+          targetSubjectHeight: 96
         }),
         expect.objectContaining({
           pixelCharacterId: "pixel-hero",
           sliceKind: "idle",
-          sourceUrl: `${pixelCharacterBase}/base-template/output.png`
+          sourceUrl: `${pixelCharacterBase}/base-template/output.png`,
+          outputFrameWidth: 64,
+          outputFrameHeight: 128,
+          targetSubjectHeight: 96
         })
       ]));
     });
@@ -904,16 +915,12 @@ describe("App", () => {
     fireEvent.change(screen.getByLabelText("设置一键处理键色容差"), {
       target: { value: "12" }
     });
-    fireEvent.change(screen.getByLabelText("设置一键处理输出帧宽"), {
-      target: { value: "96" }
-    });
-    fireEvent.change(screen.getByLabelText("设置一键处理输出帧高"), {
-      target: { value: "144" }
-    });
+    expect(screen.queryByLabelText("设置一键处理输出帧宽")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("设置一键处理输出帧高")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "保存步行设置" }));
 
     fireEvent.click(screen.getByRole("button", { name: "步行" }));
-    fireEvent.click(screen.getByRole("button", { name: "执行一键处理" }));
+    fireEvent.click(screen.getByRole("button", { name: "一键处理步行" }));
     await waitFor(() => {
       const processingCall = fetchMock.mock.calls
         .filter(([url]) => String(url).endsWith("/api/module02/processing/sprite-sheet"))
@@ -921,9 +928,9 @@ describe("App", () => {
         .find((body) => body.sliceKind === "walk");
       expect(processingCall).toMatchObject({
         tolerance: 12,
-        outputFrameWidth: 96,
-        outputFrameHeight: 144,
-        targetSubjectHeight: 108
+        outputFrameWidth: 64,
+        outputFrameHeight: 128,
+        targetSubjectHeight: 96
       });
     });
 

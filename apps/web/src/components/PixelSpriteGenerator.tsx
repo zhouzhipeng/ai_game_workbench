@@ -69,6 +69,9 @@ const DRAFT_STORAGE_KEY = "ai-game-workbench.pixel-sprite-generator.workflow.v3"
 const LEGACY_DRAFT_STORAGE_KEY = "ai-game-workbench.pixel-sprite-generator.workflow.v2";
 const DEFAULT_IMAGE_MODEL = "apimart/gpt-image-2";
 const DEFAULT_KEY_COLOR = "#00ff00";
+const FIXED_PROCESS_FRAME_WIDTH = 64;
+const FIXED_PROCESS_FRAME_HEIGHT = 128;
+const FIXED_PROCESS_SUBJECT_HEIGHT = 96;
 
 const PAGE_LABELS: Record<PixelPage, string> = {
   "base-template": "基准模板/待机",
@@ -146,7 +149,7 @@ export function PixelSpriteGenerator({ onBack }: PixelSpriteGeneratorProps) {
   const [previewStatus, setPreviewStatus] = useState("");
   const [isGeneratingBase, setIsGeneratingBase] = useState(false);
   const [isGeneratingWalk, setIsGeneratingWalk] = useState(false);
-  const [isProcessing, setIsProcessing] = useState(false);
+  const [processingSliceKind, setProcessingSliceKind] = useState<PixelSpriteSliceKind | null>(null);
   const [activeDirection, setActiveDirection] = useState<DirectionKey>("down");
   const [isWalking, setIsWalking] = useState(false);
   const [previewFrameIndex, setPreviewFrameIndex] = useState(0);
@@ -483,27 +486,26 @@ export function PixelSpriteGenerator({ onBack }: PixelSpriteGeneratorProps) {
       tolerance: draft.tolerance,
       centerFrames: true,
       centerMode: isIdle ? "frame" : "row",
-      outputFrameWidth: draft.outputFrameWidth,
-      outputFrameHeight: draft.outputFrameHeight,
+      outputFrameWidth: FIXED_PROCESS_FRAME_WIDTH,
+      outputFrameHeight: FIXED_PROCESS_FRAME_HEIGHT,
       normalizeSubjectScale: true,
-      targetSubjectHeight: getTargetSubjectHeight(draft.outputFrameHeight),
+      targetSubjectHeight: FIXED_PROCESS_SUBJECT_HEIGHT,
       directionLayout: isIdle ? "contact-2x2" : "grid"
     });
   };
 
-  const handleSliceAll = async () => {
-    setIsProcessing(true);
-    setSliceStatus("正在一键处理 walk 与 idle 切帧...");
+  const handleSliceOne = async (sliceKind: PixelSpriteSliceKind) => {
+    const label = sliceKind === "idle" ? "待机" : "步行";
+    setProcessingSliceKind(sliceKind);
+    setSliceStatus(`正在一键处理${label}，固定规格 64 x 128，角色高度 96px...`);
     try {
-      const walkResult = await runSlice("walk");
-      setAssets((current) => applySliceFrames(current, "walk", walkResult.frames));
-      const idleResult = await runSlice("idle");
-      setAssets((current) => applySliceFrames(current, "idle", idleResult.frames));
-      setSliceStatus(`一键切帧完成：walk ${walkResult.frameCount} 帧，idle ${idleResult.frameCount} 帧。`);
+      const result = await runSlice(sliceKind);
+      setAssets((current) => applySliceFrames(current, sliceKind, result.frames));
+      setSliceStatus(`${label}一键处理完成：${result.frameCount} 帧，固定规格 64 x 128，角色高度 96px。`);
     } catch (error: unknown) {
-      setSliceStatus(`一键切帧失败：${getErrorMessage(error)}`);
+      setSliceStatus(`${label}一键处理失败：${getErrorMessage(error)}`);
     } finally {
-      setIsProcessing(false);
+      setProcessingSliceKind(null);
     }
   };
 
@@ -646,6 +648,11 @@ export function PixelSpriteGenerator({ onBack }: PixelSpriteGeneratorProps) {
                       <WandSparkles size={16} /> {isGeneratingBase ? "生成中" : "生成基准模板/待机"}
                     </button>
                   </div>
+                  <div className="control-row">
+                    <button aria-label="一键处理待机" className="tool-button primary" type="button" disabled={processingSliceKind === "idle"} onClick={() => void handleSliceOne("idle")}>
+                      <Scissors size={16} /> {processingSliceKind === "idle" ? "处理中" : "一键处理待机"}
+                    </button>
+                  </div>
                 </>
               )}
             />
@@ -674,8 +681,8 @@ export function PixelSpriteGenerator({ onBack }: PixelSpriteGeneratorProps) {
                     </button>
                   </div>
                   <div className="control-row">
-                    <button aria-label="执行一键处理" className="tool-button primary" type="button" disabled={isProcessing} onClick={() => void handleSliceAll()}>
-                      <Scissors size={16} /> {isProcessing ? "处理中" : "一键处理"}
+                    <button aria-label="一键处理步行" className="tool-button primary" type="button" disabled={processingSliceKind === "walk"} onClick={() => void handleSliceOne("walk")}>
+                      <Scissors size={16} /> {processingSliceKind === "walk" ? "处理中" : "一键处理步行"}
                     </button>
                   </div>
                 </>
@@ -913,14 +920,6 @@ function PixelModuleSettings({
                     <label className="field">
                       键色容差
                       <input aria-label="设置一键处理键色容差" type="number" min={0} max={255} value={draft.tolerance} onChange={(event) => onChangeDraft("tolerance", clampNumber(Number(event.target.value), 0, 255, draft.tolerance))} />
-                    </label>
-                    <label className="field">
-                      输出帧宽
-                      <input aria-label="设置一键处理输出帧宽" type="number" min={16} max={512} value={draft.outputFrameWidth} onChange={(event) => onChangeDraft("outputFrameWidth", clampNumber(Number(event.target.value), 16, 512, draft.outputFrameWidth))} />
-                    </label>
-                    <label className="field">
-                      输出帧高
-                      <input aria-label="设置一键处理输出帧高" type="number" min={16} max={512} value={draft.outputFrameHeight} onChange={(event) => onChangeDraft("outputFrameHeight", clampNumber(Number(event.target.value), 16, 512, draft.outputFrameHeight))} />
                     </label>
                   </div>
                 </SettingsSubsection>
@@ -1194,10 +1193,6 @@ function clampNumber(value: number, min: number, max: number, fallback: number):
     return fallback;
   }
   return Math.min(max, Math.max(min, Math.round(value)));
-}
-
-function getTargetSubjectHeight(outputFrameHeight: number): number {
-  return Math.max(1, Math.round(outputFrameHeight * 0.75));
 }
 
 function loadDraft(): PixelSpriteDraft {
