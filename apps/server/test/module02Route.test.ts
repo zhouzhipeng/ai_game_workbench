@@ -288,6 +288,49 @@ describe("module 02 pixel character routes", () => {
 
     await app.close();
   });
+
+  it("segments generated walk sheets by foreground sprites when columns are uneven", async () => {
+    const storageDir = makeStorageDir();
+    const app = createApp({ storageDir, port: 8787, ffmpegPath: "ffmpeg" });
+    await app.ready();
+    await app.inject({
+      method: "POST",
+      url: "/api/module02/characters",
+      payload: { name: "hero" }
+    });
+    await mkdir(join(storageDir, "characters_pixel", "hero", "walk-template"), { recursive: true });
+    writeFileSync(join(storageDir, "characters_pixel", "hero", "walk-template", "output.png"), await createUnevenWalkSheet());
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/module02/processing/sprite-sheet",
+      payload: {
+        pixelCharacterId: "hero",
+        sliceKind: "walk",
+        sourceUrl: "/module02/characters/hero/walk-template/output.png",
+        rows: 4,
+        columns: 10,
+        keyColor: "#00ff00",
+        tolerance: 8,
+        centerFrames: true,
+        centerMode: "row",
+        outputFrameWidth: 64,
+        outputFrameHeight: 128,
+        normalizeSubjectScale: true,
+        targetSubjectHeight: 96,
+        directionLayout: "grid"
+      }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      frameCount: 36
+    });
+    expect(existsSync(join(storageDir, "characters_pixel", "hero", "slices", "walk", "frames", "row_001", "frame_009.png"))).toBe(true);
+    expect(existsSync(join(storageDir, "characters_pixel", "hero", "slices", "walk", "frames", "row_001", "frame_010.png"))).toBe(false);
+
+    await app.close();
+  });
 });
 
 function multipartPayload(fileName: string, contentType: string, body: string) {
@@ -326,6 +369,38 @@ async function createTestSheet(): Promise<Buffer> {
         top: 2
       }
     ])
+    .png()
+    .toBuffer();
+}
+
+async function createUnevenWalkSheet(): Promise<Buffer> {
+  const sprite = await sharp({
+    create: {
+      width: 42,
+      height: 80,
+      channels: 4,
+      background: { r: 180, g: 0, b: 0, alpha: 1 }
+    }
+  }).png().toBuffer();
+  const composites = [];
+  for (let row = 0; row < 4; row += 1) {
+    for (let column = 0; column < 9; column += 1) {
+      composites.push({
+        input: sprite,
+        left: 45 + (column * 100),
+        top: 30 + (row * 120)
+      });
+    }
+  }
+  return sharp({
+    create: {
+      width: 1024,
+      height: 512,
+      channels: 4,
+      background: { r: 0, g: 255, b: 0, alpha: 1 }
+    }
+  })
+    .composite(composites)
     .png()
     .toBuffer();
 }

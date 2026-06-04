@@ -608,24 +608,29 @@ export async function sliceSpriteSheetBuffer(
   }
 
   let frames: SlicedSpriteFrame[] = [];
-  for (let row = 0; row < options.rows; row += 1) {
-    for (let column = 0; column < options.columns; column += 1) {
-      const cropped = await sharp(input)
-        .extract({
-          left: column * frameWidth,
-          top: row * frameHeight,
+  if (options.directionLayout === "grid") {
+    frames = await sliceSpriteSheetByForegroundRows(input, options, metadata.width, metadata.height, frameWidth, frameHeight);
+  }
+  if (frames.length === 0) {
+    for (let row = 0; row < options.rows; row += 1) {
+      for (let column = 0; column < options.columns; column += 1) {
+        const cropped = await sharp(input)
+          .extract({
+            left: column * frameWidth,
+            top: row * frameHeight,
+            width: frameWidth,
+            height: frameHeight
+          })
+          .png()
+          .toBuffer();
+        frames.push({
+          row: row + 1,
+          index: column + 1,
           width: frameWidth,
-          height: frameHeight
-        })
-        .png()
-        .toBuffer();
-      frames.push({
-        row: row + 1,
-        index: column + 1,
-        width: frameWidth,
-        height: frameHeight,
-        buffer: await applySampledBackgroundKeyToBuffer(cropped, { tolerance: options.tolerance })
-      });
+          height: frameHeight,
+          buffer: await applySampledBackgroundKeyToBuffer(cropped, { tolerance: options.tolerance })
+        });
+      }
     }
   }
 
@@ -659,6 +664,104 @@ export async function sliceSpriteSheetBuffer(
     }
   }
   return frames;
+}
+
+async function sliceSpriteSheetByForegroundRows(
+  input: Buffer,
+  options: SliceSpriteSheetOptions,
+  sheetWidth: number,
+  sheetHeight: number,
+  fallbackFrameWidth: number,
+  fallbackFrameHeight: number
+): Promise<SlicedSpriteFrame[]> {
+  const key = parseHexColor(options.keyColor);
+  const rowHeight = Math.floor(sheetHeight / options.rows);
+  const frames: SlicedSpriteFrame[] = [];
+  for (let row = 0; row < options.rows; row += 1) {
+    const top = row * rowHeight;
+    const height = row === options.rows - 1 ? sheetHeight - top : rowHeight;
+    const rowBuffer = await sharp(input)
+      .extract({ left: 0, top, width: sheetWidth, height })
+      .ensureAlpha()
+      .raw()
+      .toBuffer();
+    const segments = findForegroundColumnSegments(rowBuffer, sheetWidth, height, key, options.tolerance);
+    if (segments.length < 2) {
+      return [];
+    }
+    for (const [index, segment] of segments.entries()) {
+      const left = Math.max(0, segment.left - 4);
+      const right = Math.min(sheetWidth - 1, segment.right + 4);
+      const cropped = await sharp(input)
+        .extract({
+          left,
+          top,
+          width: right - left + 1,
+          height
+        })
+        .png()
+        .toBuffer();
+      frames.push({
+        row: row + 1,
+        index: index + 1,
+        width: fallbackFrameWidth,
+        height: fallbackFrameHeight,
+        buffer: await applySampledBackgroundKeyToBuffer(cropped, { tolerance: options.tolerance })
+      });
+    }
+  }
+  return frames;
+}
+
+function findForegroundColumnSegments(
+  raw: Buffer,
+  width: number,
+  height: number,
+  key: RgbColor,
+  tolerance: number
+): Array<{ left: number; right: number }> {
+  const occupied = new Uint8Array(width);
+  for (let x = 0; x < width; x += 1) {
+    let count = 0;
+    for (let y = 0; y < height; y += 1) {
+      const index = ((y * width) + x) * 4;
+      const alpha = raw[index + 3] ?? 0;
+      if (alpha === 0) {
+        continue;
+      }
+      const r = raw[index] ?? 0;
+      const g = raw[index + 1] ?? 0;
+      const b = raw[index + 2] ?? 0;
+      if (!isKeyColorPixel({ r, g, b }, key, tolerance)) {
+        count += 1;
+      }
+    }
+    if (count >= 3) {
+      occupied[x] = 1;
+    }
+  }
+
+  const merged: Array<{ left: number; right: number }> = [];
+  let current: { left: number; right: number } | null = null;
+  let lastOccupied = -1;
+  for (let x = 0; x < width; x += 1) {
+    if (occupied[x] !== 1) {
+      continue;
+    }
+    if (!current || (lastOccupied >= 0 && x - lastOccupied > 18)) {
+      if (current) {
+        merged.push(current);
+      }
+      current = { left: x, right: x };
+    } else {
+      current.right = x;
+    }
+    lastOccupied = x;
+  }
+  if (current) {
+    merged.push(current);
+  }
+  return merged.filter((segment) => segment.right - segment.left + 1 >= 12);
 }
 
 export async function alignTransparentFrameToReferenceBuffers(

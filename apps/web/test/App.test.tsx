@@ -830,6 +830,8 @@ describe("App", () => {
           pixelCharacterId: "pixel-hero",
           sliceKind: "walk",
           sourceUrl: `${pixelCharacterBase}/walk-template/output.png`,
+          rows: 4,
+          columns: 10,
           outputFrameWidth: 64,
           outputFrameHeight: 128,
           targetSubjectHeight: 96
@@ -838,6 +840,8 @@ describe("App", () => {
           pixelCharacterId: "pixel-hero",
           sliceKind: "idle",
           sourceUrl: `${pixelCharacterBase}/base-template/output.png`,
+          rows: 2,
+          columns: 2,
           outputFrameWidth: 64,
           outputFrameHeight: 128,
           targetSubjectHeight: 96
@@ -927,6 +931,8 @@ describe("App", () => {
         .map(([, init]) => JSON.parse(String((init as RequestInit).body)))
         .find((body) => body.sliceKind === "walk");
       expect(processingCall).toMatchObject({
+        rows: 4,
+        columns: 10,
         tolerance: 12,
         outputFrameWidth: 64,
         outputFrameHeight: 128,

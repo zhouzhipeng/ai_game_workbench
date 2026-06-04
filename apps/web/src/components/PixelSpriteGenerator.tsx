@@ -480,8 +480,8 @@ export function PixelSpriteGenerator({ onBack }: PixelSpriteGeneratorProps) {
       pixelCharacterId: characterId,
       sliceKind,
       sourceUrl,
-      rows: isIdle ? idleAction.rows : walkAction.rows,
-      columns: isIdle ? idleAction.columns : walkAction.columns,
+      rows: getActionRows(isIdle ? idleAction : walkAction),
+      columns: getActionColumns(isIdle ? idleAction : walkAction),
       keyColor: draft.keyColor,
       tolerance: draft.tolerance,
       centerFrames: true,
@@ -1125,6 +1125,14 @@ function actionReferencePreview(action: PixelSpriteActionTemplate): MediaPreview
     url: `/module02/action-references/${encodeURIComponent(action.referenceImage)}`,
     label: action.name
   };
+}
+
+function getActionRows(action: PixelSpriteActionTemplate): number {
+  return action.rows ?? action.directionCount ?? 1;
+}
+
+function getActionColumns(action: PixelSpriteActionTemplate): number {
+  return action.columns ?? action.defaultFrameCount ?? 1;
 }
 
 function upsertCharacter(characters: PixelCharacterFolder[], character: PixelCharacterFolder): PixelCharacterFolder[] {

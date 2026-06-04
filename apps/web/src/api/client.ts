@@ -99,8 +99,10 @@ export interface PixelSpriteActionTemplate {
   id: "idle" | "walk";
   name: string;
   referenceImage: string;
-  rows: number;
-  columns: number;
+  rows?: number;
+  columns?: number;
+  defaultFrameCount?: number;
+  directionCount?: number;
   constraintPrompt: string;
 }
 
