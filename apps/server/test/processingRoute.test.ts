@@ -6,6 +6,7 @@ import sharp from "sharp";
 import { createApp } from "../src/app";
 import { resolveDefaultFfmpegPath } from "../src/config";
 import { runFfmpeg } from "../src/processing/ffmpeg";
+import { selectJumpFramesByHeight } from "../src/routes/processing";
 
 const tempDirs: string[] = [];
 
@@ -22,6 +23,51 @@ function makeStorageDir() {
 }
 
 describe("processing route", () => {
+  it("selects jump oneshot frames from first frame through first landing by foot height", async () => {
+    const dir = makeStorageDir();
+    const footYByFrame = [52, 47, 39, 44, 52, 52, 52];
+    const frames = await Promise.all(footYByFrame.map(async (footY, index) => {
+      const fileName = `frame_${String(index + 1).padStart(3, "0")}.png`;
+      const path = join(dir, fileName);
+      await sharp({
+        create: {
+          width: 64,
+          height: 64,
+          channels: 4,
+          background: { r: 0, g: 255, b: 0, alpha: 1 }
+        }
+      })
+        .composite([{
+          input: await sharp({
+            create: {
+              width: 12,
+              height: 20,
+              channels: 4,
+              background: { r: 255, g: 0, b: 0, alpha: 1 }
+            }
+          }).png().toBuffer(),
+          left: 26,
+          top: footY - 19
+        }])
+        .png()
+        .toFile(path);
+      return {
+        index: index + 1,
+        url: `/frame_${index + 1}.png`,
+        path
+      };
+    }));
+
+    const selected = await selectJumpFramesByHeight(frames, 8);
+
+    expect(selected.frames.map((frame) => frame.index)).toEqual([1, 2, 3, 4, 5]);
+    expect(selected.segment).toMatchObject({
+      startFrame: 1,
+      endFrame: 5,
+      frameCount: 5
+    });
+  });
+
   it("requires a selected character for four-direction processing", async () => {
     const app = createApp({
       ffmpegPath: "ffmpeg",
@@ -533,7 +579,7 @@ describe("processing route", () => {
     await app.close();
   });
 
-  it("compresses one-shot advanced actions without trimming to the first action", async () => {
+  it("trims jump one-shot actions at the first landing by foot height", async () => {
     const storageDir = makeStorageDir();
     const ffmpegPath = resolveDefaultFfmpegPath();
     const app = createApp({
@@ -577,8 +623,8 @@ describe("processing route", () => {
       const selectedFrameNumbers = direction.transparentFrames.map((frame: { index: number }) => frame.index);
       expect(selectedFrameNumbers[0]).toBe(1);
       expect(selectedFrameNumbers).toContain(7);
-      expect(selectedFrameNumbers).toContain(17);
-      expect(selectedFrameNumbers.at(-1)).toBe(20);
+      expect(selectedFrameNumbers).not.toContain(17);
+      expect(selectedFrameNumbers.at(-1)).toBeLessThan(17);
     }
 
     const transparentDir = join(storageDir, "characters", "hero", "advanced-character", "jump", "export", "transparent", "down");

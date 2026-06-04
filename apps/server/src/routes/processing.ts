@@ -954,7 +954,7 @@ async function processAdvancedFourDirectionVideo(input: {
   };
   const transparentZipEntries: Record<string, Buffer> = {};
   let selectedFrameCount = 0;
-  const oneShotSelection = input.mode === "oneshot"
+  const oneShotSelection = input.mode === "oneshot" && input.actionKind !== "jump"
     ? await selectCompressedOneShotFrameIndices(centeredFrames, directionKeys, input.tolerance)
     : null;
   const walkProfile = await readWalkCharacterFrameProfile(input.config.storageDir, input.characterId, directionKeys);
@@ -962,6 +962,8 @@ async function processAdvancedFourDirectionVideo(input: {
   for (const direction of directionKeys) {
     const selected = input.mode === "loop"
       ? await selectLoopFrames(centeredFrames[direction], input.minLoopFrames, input.maxLoopFrames, input.tolerance)
+      : input.actionKind === "jump"
+        ? await selectJumpFramesByHeight(centeredFrames[direction], input.tolerance)
       : selectFramesByIndices(centeredFrames[direction], oneShotSelection);
     const selectedFrames = selected.frames;
     selectedFrameCount = Math.max(selectedFrameCount, selectedFrames.length);
@@ -1164,6 +1166,80 @@ function selectFramesByIndices(
     segment: {
       ...selection.segment,
       frameCount: selectedFrames.length
+    }
+  };
+}
+
+export async function selectJumpFramesByHeight(
+  frames: { index: number; url: string; path: string }[],
+  tolerance: number
+): Promise<{ frames: { index: number; url: string; path: string }[]; segment: LoopSegment }> {
+  if (frames.length <= 2) {
+    return {
+      frames,
+      segment: {
+        startFrame: frames[0]?.index ?? 0,
+        endFrame: frames.at(-1)?.index ?? 0,
+        frameCount: frames.length,
+        score: 1
+      }
+    };
+  }
+
+  const boxes = await Promise.all(frames.map(async (frame) => {
+    const keyed = await applySampledBackgroundKeyToBuffer(await readFile(frame.path), { tolerance });
+    return getAlphaBoxFromBuffer(keyed);
+  }));
+  const baseline = boxes[0];
+  if (!baseline) {
+    return buildFallbackSelection(frames);
+  }
+
+  const jumpHeights = boxes.map((frame) => frame ? baseline.box.bottom - frame.box.bottom : 0);
+  const peakHeight = Math.max(...jumpHeights.filter(Number.isFinite));
+  const movementThreshold = Math.max(3, Math.min(8, Math.round(baseline.height * 0.015)));
+  if (!Number.isFinite(peakHeight) || peakHeight <= movementThreshold) {
+    return buildFallbackSelection(frames);
+  }
+
+  let peakPosition = 0;
+  for (const [position, height] of jumpHeights.entries()) {
+    if (height > (jumpHeights[peakPosition] ?? 0)) {
+      peakPosition = position;
+    }
+  }
+
+  const landingThreshold = Math.max(2, Math.min(6, Math.round(baseline.height * 0.01)));
+  let endPosition = frames.length - 1;
+  for (let position = peakPosition + 1; position < jumpHeights.length; position += 1) {
+    if (Math.abs(jumpHeights[position] ?? 0) <= landingThreshold) {
+      endPosition = position;
+      break;
+    }
+  }
+
+  const selectedFrames = frames.slice(0, endPosition + 1);
+  return {
+    frames: selectedFrames,
+    segment: {
+      startFrame: selectedFrames[0]?.index ?? 0,
+      endFrame: selectedFrames.at(-1)?.index ?? 0,
+      frameCount: selectedFrames.length,
+      score: Number((peakHeight / Math.max(1, baseline.height)).toFixed(4))
+    }
+  };
+}
+
+function buildFallbackSelection(
+  frames: { index: number; url: string; path: string }[]
+): { frames: { index: number; url: string; path: string }[]; segment: LoopSegment } {
+  return {
+    frames,
+    segment: {
+      startFrame: frames[0]?.index ?? 0,
+      endFrame: frames.at(-1)?.index ?? 0,
+      frameCount: frames.length,
+      score: 1
     }
   };
 }
