@@ -1,16 +1,10 @@
-import { Boxes, Film, ImagePlus, Layers, Lock, Settings, Sparkles } from "lucide-react";
+import { Film, ImagePlus, Settings } from "lucide-react";
 
 interface WorkbenchHubProps {
   onOpenApiSettings: () => void;
   onOpenPixelSpriteGenerator: () => void;
   onOpenSpriteAnimator: () => void;
 }
-
-const plannedModules = [
-  { title: "精灵图编辑器", icon: Layers },
-  { title: "地图块生成器", icon: Boxes },
-  { title: "头像生成器", icon: Sparkles }
-];
 
 export function WorkbenchHub({ onOpenApiSettings, onOpenPixelSpriteGenerator, onOpenSpriteAnimator }: WorkbenchHubProps) {
   return (
@@ -43,17 +37,6 @@ export function WorkbenchHub({ onOpenApiSettings, onOpenPixelSpriteGenerator, on
           <span className="module-title">API Settings</span>
           <span className="module-desc">Manage global providers, API keys, model allowlists, and default generation models.</span>
         </button>
-
-        {plannedModules.map((module) => {
-          const Icon = module.icon;
-          return (
-            <button className="module-card module-card-disabled" type="button" disabled key={module.title}>
-              <span className="module-icon"><Icon size={28} /></span>
-              <span className="module-title">{module.title}</span>
-              <span className="module-desc"><Lock size={14} /> 规划中</span>
-            </button>
-          );
-        })}
       </section>
     </main>
   );

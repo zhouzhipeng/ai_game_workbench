@@ -756,6 +756,18 @@ function openPixelSpriteGenerator() {
 }
 
 describe("App", () => {
+  it("shows only available hub modules", () => {
+    render(<App />);
+
+    expect(screen.getByRole("button", { name: /01/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /02/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /API Settings/i })).toBeInTheDocument();
+    expect(screen.queryByText("精灵图编辑器")).not.toBeInTheDocument();
+    expect(screen.queryByText("地图块生成器")).not.toBeInTheDocument();
+    expect(screen.queryByText("头像生成器")).not.toBeInTheDocument();
+    expect(screen.queryByText("规划中")).not.toBeInTheDocument();
+  });
+
   it("lets shared module settings content span the available stage width", () => {
     const styles = readFileSync(stylesPath, "utf8");
 
