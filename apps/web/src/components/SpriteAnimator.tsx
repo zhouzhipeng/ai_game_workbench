@@ -144,26 +144,46 @@ interface SpriteAnimatorDraft {
   finalImagePrompt: string;
   directionImageModel: string;
   directionImageGenerationSize: number;
+  directionWalkImageModel: string;
+  directionWalkImageGenerationSize: number;
+  directionIdleImageModel: string;
+  directionIdleImageGenerationSize: number;
   directionIdleSystemPrompt: string;
   directionIdleCustomPrompt: string;
   finalDirectionIdlePrompt: string;
   directionWalkSystemPrompt: string;
   directionWalkCustomPrompt: string;
   finalDirectionWalkPrompt: string;
+  walkVideoModel: string;
+  walkVideoDurationSeconds: number;
+  walkVideoResolution: string;
   videoSystemPrompt: string;
   videoCustomPrompt: string;
   finalVideoPrompt: string;
+  advancedRunImageModel: string;
+  advancedRunImageGenerationSize: number;
   advancedRunSystemPrompt: string;
   advancedRunCustomPrompt: string;
   finalAdvancedRunPrompt: string;
+  advancedRunVideoModel: string;
+  advancedRunVideoDurationSeconds: number;
+  advancedRunVideoResolution: string;
   advancedRunVideoSystemPrompt: string;
   advancedRunVideoCustomPrompt: string;
   finalAdvancedRunVideoPrompt: string;
+  advancedAttackImageModel: string;
+  advancedAttackImageGenerationSize: number;
+  advancedAttackVideoModel: string;
+  advancedAttackVideoDurationSeconds: number;
+  advancedAttackVideoResolution: string;
   advancedAttackSystemPrompt: string;
   advancedAttackCustomPrompt: string;
   finalAdvancedAttackPrompt: string;
   advancedAttackMidframeCustomPrompt: string;
   advancedAttackStartScale: number;
+  advancedJumpVideoModel: string;
+  advancedJumpVideoDurationSeconds: number;
+  advancedJumpVideoResolution: string;
   advancedJumpSystemPrompt: string;
   advancedJumpCustomPrompt: string;
   finalAdvancedJumpPrompt: string;
@@ -419,29 +439,49 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
   const [finalImagePrompt, setFinalImagePrompt] = useState(savedDraft.finalImagePrompt);
   const [directionImageModel, setDirectionImageModel] = useState(savedDraft.directionImageModel);
   const [directionImageGenerationSize, setDirectionImageGenerationSize] = useState(savedDraft.directionImageGenerationSize);
+  const [directionWalkImageModel, setDirectionWalkImageModel] = useState(savedDraft.directionWalkImageModel);
+  const [directionWalkImageGenerationSize, setDirectionWalkImageGenerationSize] = useState(savedDraft.directionWalkImageGenerationSize);
+  const [directionIdleImageModel, setDirectionIdleImageModel] = useState(savedDraft.directionIdleImageModel);
+  const [directionIdleImageGenerationSize, setDirectionIdleImageGenerationSize] = useState(savedDraft.directionIdleImageGenerationSize);
   const [directionIdleSystemPrompt, setDirectionIdleSystemPrompt] = useState(savedDraft.directionIdleSystemPrompt);
   const [directionIdleCustomPrompt, setDirectionIdleCustomPrompt] = useState(savedDraft.directionIdleCustomPrompt);
   const [finalDirectionIdlePrompt, setFinalDirectionIdlePrompt] = useState(savedDraft.finalDirectionIdlePrompt);
   const [directionWalkSystemPrompt, setDirectionWalkSystemPrompt] = useState(savedDraft.directionWalkSystemPrompt);
   const [directionWalkCustomPrompt, setDirectionWalkCustomPrompt] = useState(savedDraft.directionWalkCustomPrompt);
   const [finalDirectionWalkPrompt, setFinalDirectionWalkPrompt] = useState(savedDraft.finalDirectionWalkPrompt);
+  const [walkVideoModel, setWalkVideoModel] = useState(savedDraft.walkVideoModel);
+  const [walkVideoDurationSeconds, setWalkVideoDurationSeconds] = useState(savedDraft.walkVideoDurationSeconds);
+  const [walkVideoResolution, setWalkVideoResolution] = useState(savedDraft.walkVideoResolution);
   const [videoSystemPrompt, setVideoSystemPrompt] = useState(savedDraft.videoSystemPrompt);
   const [videoCustomPrompt, setVideoCustomPrompt] = useState(savedDraft.videoCustomPrompt);
   const [finalVideoPrompt, setFinalVideoPrompt] = useState(savedDraft.finalVideoPrompt);
   const [advancedRunSystemPrompt, setAdvancedRunSystemPrompt] = useState(savedDraft.advancedRunSystemPrompt);
   const [advancedRunCustomPrompt, setAdvancedRunCustomPrompt] = useState(savedDraft.advancedRunCustomPrompt);
   const [finalAdvancedRunPrompt, setFinalAdvancedRunPrompt] = useState(savedDraft.finalAdvancedRunPrompt);
+  const [advancedRunImageModel, setAdvancedRunImageModel] = useState(savedDraft.advancedRunImageModel);
+  const [advancedRunImageGenerationSize, setAdvancedRunImageGenerationSize] = useState(savedDraft.advancedRunImageGenerationSize);
+  const [advancedRunVideoModel, setAdvancedRunVideoModel] = useState(savedDraft.advancedRunVideoModel);
+  const [advancedRunVideoDurationSeconds, setAdvancedRunVideoDurationSeconds] = useState(savedDraft.advancedRunVideoDurationSeconds);
+  const [advancedRunVideoResolution, setAdvancedRunVideoResolution] = useState(savedDraft.advancedRunVideoResolution);
   const [advancedRunVideoSystemPrompt, setAdvancedRunVideoSystemPrompt] = useState(savedDraft.advancedRunVideoSystemPrompt);
   const [advancedRunVideoCustomPrompt, setAdvancedRunVideoCustomPrompt] = useState(savedDraft.advancedRunVideoCustomPrompt);
   const [finalAdvancedRunVideoPrompt, setFinalAdvancedRunVideoPrompt] = useState(savedDraft.finalAdvancedRunVideoPrompt);
   const [advancedAttackSystemPrompt, setAdvancedAttackSystemPrompt] = useState(savedDraft.advancedAttackSystemPrompt);
   const [advancedAttackCustomPrompt, setAdvancedAttackCustomPrompt] = useState(savedDraft.advancedAttackCustomPrompt);
   const [finalAdvancedAttackPrompt, setFinalAdvancedAttackPrompt] = useState(savedDraft.finalAdvancedAttackPrompt);
+  const [advancedAttackImageModel, setAdvancedAttackImageModel] = useState(savedDraft.advancedAttackImageModel);
+  const [advancedAttackImageGenerationSize, setAdvancedAttackImageGenerationSize] = useState(savedDraft.advancedAttackImageGenerationSize);
+  const [advancedAttackVideoModel, setAdvancedAttackVideoModel] = useState(savedDraft.advancedAttackVideoModel);
+  const [advancedAttackVideoDurationSeconds, setAdvancedAttackVideoDurationSeconds] = useState(savedDraft.advancedAttackVideoDurationSeconds);
+  const [advancedAttackVideoResolution, setAdvancedAttackVideoResolution] = useState(savedDraft.advancedAttackVideoResolution);
   const [advancedAttackMidframeCustomPrompt, setAdvancedAttackMidframeCustomPrompt] = useState(savedDraft.advancedAttackMidframeCustomPrompt);
   const [advancedAttackStartScale, setAdvancedAttackStartScale] = useState(savedDraft.advancedAttackStartScale);
   const [advancedJumpSystemPrompt, setAdvancedJumpSystemPrompt] = useState(savedDraft.advancedJumpSystemPrompt);
   const [advancedJumpCustomPrompt, setAdvancedJumpCustomPrompt] = useState(savedDraft.advancedJumpCustomPrompt);
   const [finalAdvancedJumpPrompt, setFinalAdvancedJumpPrompt] = useState(savedDraft.finalAdvancedJumpPrompt);
+  const [advancedJumpVideoModel, setAdvancedJumpVideoModel] = useState(savedDraft.advancedJumpVideoModel);
+  const [advancedJumpVideoDurationSeconds, setAdvancedJumpVideoDurationSeconds] = useState(savedDraft.advancedJumpVideoDurationSeconds);
+  const [advancedJumpVideoResolution, setAdvancedJumpVideoResolution] = useState(savedDraft.advancedJumpVideoResolution);
   const [advancedJumpStartScale, setAdvancedJumpStartScale] = useState(savedDraft.advancedJumpStartScale);
   const [frameCount, setFrameCount] = useState(savedDraft.frameCount);
   const [fps, setFps] = useState(savedDraft.fps);
@@ -521,21 +561,61 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
     () => filteredProviderModelCatalog ? toVideoModelOptions(filteredProviderModelCatalog) : VIDEO_MODELS,
     [filteredProviderModelCatalog]
   );
-  const videoDurationOptions = useMemo(
-    () => getVideoDurationOptions(videoModels, videoModel),
-    [videoModels, videoModel]
-  );
-  const videoResolutionOptions = useMemo(
-    () => getVideoResolutionOptions(videoModels, videoModel),
-    [videoModels, videoModel]
+  const attackVideoModels = useMemo(
+    () => videoModels.filter((model) => isAttackVideoModelAllowed(model.id)),
+    [videoModels]
   );
   const imageGenerationSizeOptions = useMemo(
     () => getImageGenerationSizeOptions(imageModels, imageModel),
     [imageModels, imageModel]
   );
-  const directionImageGenerationSizeOptions = useMemo(
-    () => getImageGenerationSizeOptions(imageModels, directionImageModel),
-    [directionImageModel, imageModels]
+  const directionWalkImageGenerationSizeOptions = useMemo(
+    () => getImageGenerationSizeOptions(imageModels, directionWalkImageModel),
+    [directionWalkImageModel, imageModels]
+  );
+  const directionIdleImageGenerationSizeOptions = useMemo(
+    () => getImageGenerationSizeOptions(imageModels, directionIdleImageModel),
+    [directionIdleImageModel, imageModels]
+  );
+  const advancedRunImageGenerationSizeOptions = useMemo(
+    () => getImageGenerationSizeOptions(imageModels, advancedRunImageModel),
+    [advancedRunImageModel, imageModels]
+  );
+  const advancedAttackImageGenerationSizeOptions = useMemo(
+    () => getImageGenerationSizeOptions(imageModels, advancedAttackImageModel),
+    [advancedAttackImageModel, imageModels]
+  );
+  const walkVideoDurationOptions = useMemo(
+    () => getVideoDurationOptions(videoModels, walkVideoModel),
+    [videoModels, walkVideoModel]
+  );
+  const walkVideoResolutionOptions = useMemo(
+    () => getVideoResolutionOptions(videoModels, walkVideoModel),
+    [videoModels, walkVideoModel]
+  );
+  const advancedRunVideoDurationOptions = useMemo(
+    () => getVideoDurationOptions(videoModels, advancedRunVideoModel),
+    [advancedRunVideoModel, videoModels]
+  );
+  const advancedRunVideoResolutionOptions = useMemo(
+    () => getVideoResolutionOptions(videoModels, advancedRunVideoModel),
+    [advancedRunVideoModel, videoModels]
+  );
+  const advancedAttackVideoDurationOptions = useMemo(
+    () => getVideoDurationOptions(attackVideoModels, advancedAttackVideoModel),
+    [advancedAttackVideoModel, attackVideoModels]
+  );
+  const advancedAttackVideoResolutionOptions = useMemo(
+    () => getVideoResolutionOptions(attackVideoModels, advancedAttackVideoModel),
+    [advancedAttackVideoModel, attackVideoModels]
+  );
+  const advancedJumpVideoDurationOptions = useMemo(
+    () => getVideoDurationOptions(videoModels, advancedJumpVideoModel),
+    [advancedJumpVideoModel, videoModels]
+  );
+  const advancedJumpVideoResolutionOptions = useMemo(
+    () => getVideoResolutionOptions(videoModels, advancedJumpVideoModel),
+    [advancedJumpVideoModel, videoModels]
   );
   const builtInStyleReferencePreview = useMemo<MediaPreview>(() => ({
     name: "cel-anime-south-facing.png",
@@ -577,9 +657,45 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
   }, [directionImageModel, imageModels]);
 
   useEffect(() => {
+    setDirectionWalkImageGenerationSize((currentSize) => normalizeImageGenerationSize(imageModels, directionWalkImageModel, currentSize));
+  }, [directionWalkImageModel, imageModels]);
+
+  useEffect(() => {
+    setDirectionIdleImageGenerationSize((currentSize) => normalizeImageGenerationSize(imageModels, directionIdleImageModel, currentSize));
+  }, [directionIdleImageModel, imageModels]);
+
+  useEffect(() => {
+    setAdvancedRunImageGenerationSize((currentSize) => normalizeImageGenerationSize(imageModels, advancedRunImageModel, currentSize));
+  }, [advancedRunImageModel, imageModels]);
+
+  useEffect(() => {
+    setAdvancedAttackImageGenerationSize((currentSize) => normalizeImageGenerationSize(imageModels, advancedAttackImageModel, currentSize));
+  }, [advancedAttackImageModel, imageModels]);
+
+  useEffect(() => {
     setVideoDurationSeconds((currentDuration) => normalizeVideoDuration(videoModels, videoModel, currentDuration));
     setVideoResolution((currentResolution) => normalizeVideoResolution(videoModels, videoModel, currentResolution));
   }, [videoModel, videoModels]);
+
+  useEffect(() => {
+    setWalkVideoDurationSeconds((currentDuration) => normalizeVideoDuration(videoModels, walkVideoModel, currentDuration));
+    setWalkVideoResolution((currentResolution) => normalizeVideoResolution(videoModels, walkVideoModel, currentResolution));
+  }, [videoModels, walkVideoModel]);
+
+  useEffect(() => {
+    setAdvancedRunVideoDurationSeconds((currentDuration) => normalizeVideoDuration(videoModels, advancedRunVideoModel, currentDuration));
+    setAdvancedRunVideoResolution((currentResolution) => normalizeVideoResolution(videoModels, advancedRunVideoModel, currentResolution));
+  }, [advancedRunVideoModel, videoModels]);
+
+  useEffect(() => {
+    setAdvancedAttackVideoDurationSeconds((currentDuration) => normalizeVideoDuration(attackVideoModels, advancedAttackVideoModel, currentDuration));
+    setAdvancedAttackVideoResolution((currentResolution) => normalizeVideoResolution(attackVideoModels, advancedAttackVideoModel, currentResolution));
+  }, [advancedAttackVideoModel, attackVideoModels]);
+
+  useEffect(() => {
+    setAdvancedJumpVideoDurationSeconds((currentDuration) => normalizeVideoDuration(videoModels, advancedJumpVideoModel, currentDuration));
+    setAdvancedJumpVideoResolution((currentResolution) => normalizeVideoResolution(videoModels, advancedJumpVideoModel, currentResolution));
+  }, [advancedJumpVideoModel, videoModels]);
 
   useEffect(() => {
     setFinalImagePrompt(buildFirstFramePrompt({
@@ -704,6 +820,20 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
     if (nextDirectionImageModel !== directionImageModel) {
       setDirectionImageModel(nextDirectionImageModel);
     }
+    const updateImageModel = (currentModel: string, setter: (model: string) => void) => {
+      const nextModel = chooseCompatibleModelId(
+        filteredProviderModelCatalog.imageModels,
+        currentModel,
+        filteredProviderModelCatalog.defaults.imageModelId
+      );
+      if (nextModel !== currentModel) {
+        setter(nextModel);
+      }
+    };
+    updateImageModel(directionWalkImageModel, setDirectionWalkImageModel);
+    updateImageModel(directionIdleImageModel, setDirectionIdleImageModel);
+    updateImageModel(advancedRunImageModel, setAdvancedRunImageModel);
+    updateImageModel(advancedAttackImageModel, setAdvancedAttackImageModel);
     const nextVideoModel = chooseCompatibleModelId(
       filteredProviderModelCatalog.videoModels,
       videoModel,
@@ -712,7 +842,34 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
     if (nextVideoModel !== videoModel) {
       setVideoModel(nextVideoModel);
     }
-  }, [directionImageModel, filteredProviderModelCatalog, imageModel, videoModel]);
+    const updateVideoModel = (currentModel: string, setter: (model: string) => void, models = filteredProviderModelCatalog.videoModels) => {
+      const nextModel = chooseCompatibleModelId(
+        models,
+        currentModel,
+        filteredProviderModelCatalog.defaults.videoModelId
+      );
+      if (nextModel !== currentModel) {
+        setter(nextModel);
+      }
+    };
+    updateVideoModel(walkVideoModel, setWalkVideoModel);
+    updateVideoModel(advancedRunVideoModel, setAdvancedRunVideoModel);
+    updateVideoModel(advancedAttackVideoModel, setAdvancedAttackVideoModel, filteredProviderModelCatalog.videoModels.filter((model) => isAttackVideoModelAllowed(model.id)));
+    updateVideoModel(advancedJumpVideoModel, setAdvancedJumpVideoModel);
+  }, [
+    advancedAttackImageModel,
+    advancedAttackVideoModel,
+    advancedJumpVideoModel,
+    advancedRunImageModel,
+    advancedRunVideoModel,
+    directionIdleImageModel,
+    directionImageModel,
+    directionWalkImageModel,
+    filteredProviderModelCatalog,
+    imageModel,
+    videoModel,
+    walkVideoModel
+  ]);
 
   useEffect(() => {
     let isCancelled = false;
@@ -1283,6 +1440,8 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
       return;
     }
     const finalPrompt = templateKind === "idle" ? finalDirectionIdlePrompt : finalDirectionWalkPrompt;
+    const requestImageModel = templateKind === "idle" ? directionIdleImageModel : directionWalkImageModel;
+    const requestImageSize = templateKind === "idle" ? directionIdleImageGenerationSize : directionWalkImageGenerationSize;
     const outputLabel = templateKind === "idle" ? "待机" : "步行";
     assetHydrationVersionRef.current += 1;
     setProcessingDirectionTemplate(templateKind);
@@ -1292,9 +1451,9 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
       const requestPublicAssetBaseUrl = await ensurePublicAssetBaseUrl();
       const response = await createDirectionTemplateGeneration({
         templateKind,
-        model: directionImageModel,
+        model: requestImageModel,
         prompt: finalPrompt,
-        targetSize: directionImageGenerationSize,
+        targetSize: requestImageSize,
         keyColor,
         characterTemplateImageDataUrl
       }, {
@@ -1367,11 +1526,11 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
     setVideoStatusDetails("");
     try {
       const response = await createVideoGeneration({
-        model: videoModel,
+        model: walkVideoModel,
         prompt: finalVideoPrompt,
         firstFrameUrl,
-        durationSeconds: videoDurationSeconds,
-        resolution: videoResolution
+        durationSeconds: walkVideoDurationSeconds,
+        resolution: walkVideoResolution
       }, {
         characterId
       });
@@ -1657,10 +1816,25 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
     ));
   };
 
-  const handleChangeVideoModel = (nextModel: string) => {
-    setVideoModel(nextModel);
-    setVideoDurationSeconds(getDefaultVideoDuration(videoModels, nextModel));
-    setVideoResolution(getDefaultVideoResolution(videoModels, nextModel));
+  const handleChangeImageModel = (
+    nextModel: string,
+    setModel: (model: string) => void,
+    setSize: (size: number) => void
+  ) => {
+    setModel(nextModel);
+    setSize(getDefaultImageGenerationSize(imageModels, nextModel));
+  };
+
+  const handleChangeVideoModel = (
+    nextModel: string,
+    setModel: (model: string) => void,
+    setDuration: (duration: number) => void,
+    setResolution: (resolution: string) => void,
+    models = videoModels
+  ) => {
+    setModel(nextModel);
+    setDuration(getDefaultVideoDuration(models, nextModel));
+    setResolution(getDefaultVideoResolution(models, nextModel));
   };
 
   const updateAdvancedAction = (actionKind: AdvancedActionKind, patch: Partial<AdvancedActionState>) => {
@@ -1683,6 +1857,28 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
     return finalAdvancedJumpPrompt;
   };
 
+  const getAdvancedVideoSettings = (actionKind: AdvancedActionKind) => {
+    if (actionKind === "run") {
+      return {
+        model: advancedRunVideoModel,
+        durationSeconds: advancedRunVideoDurationSeconds,
+        resolution: advancedRunVideoResolution
+      };
+    }
+    if (actionKind === "attack-1") {
+      return {
+        model: advancedAttackVideoModel,
+        durationSeconds: advancedAttackVideoDurationSeconds,
+        resolution: advancedAttackVideoResolution
+      };
+    }
+    return {
+      model: advancedJumpVideoModel,
+      durationSeconds: advancedJumpVideoDurationSeconds,
+      resolution: advancedJumpVideoResolution
+    };
+  };
+
   const handleGenerateRunKeyframe = async () => {
     const characterId = requireCharacter((message) => updateAdvancedAction("run", { status: message }));
     if (!characterId) {
@@ -1701,9 +1897,9 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
       const requestPublicAssetBaseUrl = await ensurePublicAssetBaseUrl();
       const response = await createDirectionTemplateGeneration({
         templateKind: "run",
-        model: directionImageModel,
+        model: advancedRunImageModel,
         prompt: finalAdvancedRunPrompt,
-        targetSize: directionImageGenerationSize,
+        targetSize: advancedRunImageGenerationSize,
         keyColor,
         characterTemplateImageDataUrl
       }, {
@@ -1797,9 +1993,9 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
       const requestPublicAssetBaseUrl = await ensurePublicAssetBaseUrl();
       const response = await createAdvancedActionMidframeGeneration({
         actionKind,
-        model: directionImageModel,
+        model: advancedAttackImageModel,
         prompt: advancedAttackMidframeCustomPrompt,
-        targetSize: directionImageGenerationSize,
+        targetSize: advancedAttackImageGenerationSize,
         keyColor,
         startFrameImageDataUrl
       }, {
@@ -1847,7 +2043,8 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
       updateAdvancedAction(actionKind, { status: "请先生成攻击中间帧，再提交攻击视频任务。" });
       return;
     }
-    if (actionKind === "attack-1" && videoModel === APIMART_SEEDANCE_1_PRO_QUALITY_MODEL) {
+    const requestVideoSettings = getAdvancedVideoSettings(actionKind);
+    if (actionKind === "attack-1" && requestVideoSettings.model === APIMART_SEEDANCE_1_PRO_QUALITY_MODEL) {
       updateAdvancedAction(actionKind, { status: "Seedance 1.0 Pro Quality 只用于步行、跑步和跳跃，攻击 1 请切换到 Seedance 2.0。" });
       return;
     }
@@ -1866,13 +2063,13 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
     });
     try {
       const response = await createVideoGeneration({
-        model: videoModel,
+        model: requestVideoSettings.model,
         prompt: getAdvancedPrompt(actionKind),
         firstFrameUrl,
         ...(actionKind === "attack-1" ? { referenceOnly: true } : {}),
         inputReferenceUrls,
-        durationSeconds: videoDurationSeconds,
-        resolution: videoResolution
+        durationSeconds: requestVideoSettings.durationSeconds,
+        resolution: requestVideoSettings.resolution
       }, {
         characterId,
         actionKind
@@ -1998,29 +2195,49 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
     setFinalImagePrompt(draft.finalImagePrompt);
     setDirectionImageModel(draft.directionImageModel);
     setDirectionImageGenerationSize(draft.directionImageGenerationSize);
+    setDirectionWalkImageModel(draft.directionWalkImageModel);
+    setDirectionWalkImageGenerationSize(draft.directionWalkImageGenerationSize);
+    setDirectionIdleImageModel(draft.directionIdleImageModel);
+    setDirectionIdleImageGenerationSize(draft.directionIdleImageGenerationSize);
     setDirectionIdleSystemPrompt(draft.directionIdleSystemPrompt);
     setDirectionIdleCustomPrompt(draft.directionIdleCustomPrompt);
     setFinalDirectionIdlePrompt(draft.finalDirectionIdlePrompt);
     setDirectionWalkSystemPrompt(draft.directionWalkSystemPrompt);
     setDirectionWalkCustomPrompt(draft.directionWalkCustomPrompt);
     setFinalDirectionWalkPrompt(draft.finalDirectionWalkPrompt);
+    setWalkVideoModel(draft.walkVideoModel);
+    setWalkVideoDurationSeconds(draft.walkVideoDurationSeconds);
+    setWalkVideoResolution(draft.walkVideoResolution);
     setVideoSystemPrompt(draft.videoSystemPrompt);
     setVideoCustomPrompt(draft.videoCustomPrompt);
     setFinalVideoPrompt(draft.finalVideoPrompt);
     setAdvancedRunSystemPrompt(draft.advancedRunSystemPrompt);
     setAdvancedRunCustomPrompt(draft.advancedRunCustomPrompt);
     setFinalAdvancedRunPrompt(draft.finalAdvancedRunPrompt);
+    setAdvancedRunImageModel(draft.advancedRunImageModel);
+    setAdvancedRunImageGenerationSize(draft.advancedRunImageGenerationSize);
+    setAdvancedRunVideoModel(draft.advancedRunVideoModel);
+    setAdvancedRunVideoDurationSeconds(draft.advancedRunVideoDurationSeconds);
+    setAdvancedRunVideoResolution(draft.advancedRunVideoResolution);
     setAdvancedRunVideoSystemPrompt(draft.advancedRunVideoSystemPrompt);
     setAdvancedRunVideoCustomPrompt(draft.advancedRunVideoCustomPrompt);
     setFinalAdvancedRunVideoPrompt(draft.finalAdvancedRunVideoPrompt);
     setAdvancedAttackSystemPrompt(draft.advancedAttackSystemPrompt);
     setAdvancedAttackCustomPrompt(draft.advancedAttackCustomPrompt);
     setFinalAdvancedAttackPrompt(draft.finalAdvancedAttackPrompt);
+    setAdvancedAttackImageModel(draft.advancedAttackImageModel);
+    setAdvancedAttackImageGenerationSize(draft.advancedAttackImageGenerationSize);
+    setAdvancedAttackVideoModel(draft.advancedAttackVideoModel);
+    setAdvancedAttackVideoDurationSeconds(draft.advancedAttackVideoDurationSeconds);
+    setAdvancedAttackVideoResolution(draft.advancedAttackVideoResolution);
     setAdvancedAttackMidframeCustomPrompt(draft.advancedAttackMidframeCustomPrompt);
     setAdvancedAttackStartScale(draft.advancedAttackStartScale);
     setAdvancedJumpSystemPrompt(draft.advancedJumpSystemPrompt);
     setAdvancedJumpCustomPrompt(draft.advancedJumpCustomPrompt);
     setFinalAdvancedJumpPrompt(draft.finalAdvancedJumpPrompt);
+    setAdvancedJumpVideoModel(draft.advancedJumpVideoModel);
+    setAdvancedJumpVideoDurationSeconds(draft.advancedJumpVideoDurationSeconds);
+    setAdvancedJumpVideoResolution(draft.advancedJumpVideoResolution);
     setAdvancedJumpStartScale(draft.advancedJumpStartScale);
     setFrameCount(draft.frameCount);
     setFps(draft.fps);
@@ -2044,26 +2261,46 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
     finalImagePrompt: currentFinalImagePrompt,
     directionImageModel,
     directionImageGenerationSize,
+    directionWalkImageModel,
+    directionWalkImageGenerationSize,
+    directionIdleImageModel,
+    directionIdleImageGenerationSize,
     directionIdleSystemPrompt,
     directionIdleCustomPrompt,
     finalDirectionIdlePrompt,
     directionWalkSystemPrompt,
     directionWalkCustomPrompt,
     finalDirectionWalkPrompt,
+    walkVideoModel,
+    walkVideoDurationSeconds,
+    walkVideoResolution,
     videoSystemPrompt,
     videoCustomPrompt,
     finalVideoPrompt,
     advancedRunSystemPrompt,
     advancedRunCustomPrompt,
     finalAdvancedRunPrompt,
+    advancedRunImageModel,
+    advancedRunImageGenerationSize,
+    advancedRunVideoModel,
+    advancedRunVideoDurationSeconds,
+    advancedRunVideoResolution,
     advancedRunVideoSystemPrompt,
     advancedRunVideoCustomPrompt,
     finalAdvancedRunVideoPrompt,
     advancedAttackSystemPrompt,
     advancedAttackCustomPrompt,
     finalAdvancedAttackPrompt,
+    advancedAttackImageModel,
+    advancedAttackImageGenerationSize,
+    advancedAttackVideoModel,
+    advancedAttackVideoDurationSeconds,
+    advancedAttackVideoResolution,
     advancedAttackMidframeCustomPrompt,
     advancedAttackStartScale,
+    advancedJumpVideoModel,
+    advancedJumpVideoDurationSeconds,
+    advancedJumpVideoResolution,
     advancedJumpSystemPrompt,
     advancedJumpCustomPrompt,
     finalAdvancedJumpPrompt,
@@ -2137,15 +2374,22 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
     }
   };
 
-  const renderDirectionImageFields = (title: string) => (
+  const renderDirectionImageFields = (
+    title: string,
+    model: string,
+    size: number,
+    sizeOptions: readonly ImageGenerationSizeOption[],
+    setModel: (model: string) => void,
+    setSize: (size: number) => void
+  ) => (
     <ImageDefaultFields
       title={title}
-      imageModel={directionImageModel}
-      imageGenerationSize={directionImageGenerationSize}
-      imageGenerationSizeOptions={directionImageGenerationSizeOptions}
+      imageModel={model}
+      imageGenerationSize={size}
+      imageGenerationSizeOptions={sizeOptions}
       imageModels={imageModels}
-      onChangeImageModel={setDirectionImageModel}
-      onChangeImageGenerationSize={setDirectionImageGenerationSize}
+      onChangeImageModel={(nextModel) => handleChangeImageModel(nextModel, setModel, setSize)}
+      onChangeImageGenerationSize={setSize}
     />
   );
 
@@ -2358,7 +2602,14 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
                   content: (
                     <div className="module01-settings-fields">
                       <SettingsSubsection title="图片设置">
-                        {renderDirectionImageFields("设置步行")}
+                        {renderDirectionImageFields(
+                          "设置步行",
+                          directionWalkImageModel,
+                          directionWalkImageGenerationSize,
+                          directionWalkImageGenerationSizeOptions,
+                          setDirectionWalkImageModel,
+                          setDirectionWalkImageGenerationSize
+                        )}
                         <div className="prompt-grid">
                           <label className="field">
                             步行图片系统提示词
@@ -2377,15 +2628,15 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
                       <SettingsSubsection title="视频设置">
                         <VideoDefaultFields
                           title="设置步行"
-                          videoModel={videoModel}
-                          videoDurationSeconds={videoDurationSeconds}
-                          videoResolution={videoResolution}
-                          videoDurationOptions={videoDurationOptions}
-                          videoResolutionOptions={videoResolutionOptions}
+                          videoModel={walkVideoModel}
+                          videoDurationSeconds={walkVideoDurationSeconds}
+                          videoResolution={walkVideoResolution}
+                          videoDurationOptions={walkVideoDurationOptions}
+                          videoResolutionOptions={walkVideoResolutionOptions}
                           videoModels={videoModels}
-                          onChangeVideoModel={handleChangeVideoModel}
-                          onChangeVideoDuration={setVideoDurationSeconds}
-                          onChangeVideoResolution={setVideoResolution}
+                          onChangeVideoModel={(nextModel) => handleChangeVideoModel(nextModel, setWalkVideoModel, setWalkVideoDurationSeconds, setWalkVideoResolution)}
+                          onChangeVideoDuration={setWalkVideoDurationSeconds}
+                          onChangeVideoResolution={setWalkVideoResolution}
                         />
                         <div className="prompt-grid">
                           <label className="field">
@@ -2417,7 +2668,11 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
                       <div className="form-grid">
                         <label className="field">
                           图像模型
-                          <select aria-label="设置待机图像模型" value={directionImageModel} onChange={(event) => setDirectionImageModel(event.target.value)}>
+                          <select
+                            aria-label="设置待机图像模型"
+                            value={directionIdleImageModel}
+                            onChange={(event) => handleChangeImageModel(event.target.value, setDirectionIdleImageModel, setDirectionIdleImageGenerationSize)}
+                          >
                             {imageModels.map((model) => (
                               <option key={model.id} value={model.id}>{model.label}</option>
                             ))}
@@ -2425,8 +2680,8 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
                         </label>
                         <label className="field">
                           图片尺寸
-                          <select aria-label="设置待机图片生成尺寸" value={directionImageGenerationSize} onChange={(event) => setDirectionImageGenerationSize(Number(event.target.value))}>
-                            {directionImageGenerationSizeOptions.map((option) => (
+                          <select aria-label="设置待机图片生成尺寸" value={directionIdleImageGenerationSize} onChange={(event) => setDirectionIdleImageGenerationSize(Number(event.target.value))}>
+                            {directionIdleImageGenerationSizeOptions.map((option) => (
                               <option key={option.size} value={option.size}>{option.label}</option>
                             ))}
                           </select>
@@ -2456,7 +2711,14 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
                   content: (
                     <div className="module01-settings-fields">
                       <SettingsSubsection title="图片设置">
-                        {renderDirectionImageFields("设置跑步首帧")}
+                        {renderDirectionImageFields(
+                          "设置跑步首帧",
+                          advancedRunImageModel,
+                          advancedRunImageGenerationSize,
+                          advancedRunImageGenerationSizeOptions,
+                          setAdvancedRunImageModel,
+                          setAdvancedRunImageGenerationSize
+                        )}
                         <div className="prompt-grid">
                           <label className="field">
                             跑步首帧系统提示词
@@ -2475,15 +2737,15 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
                       <SettingsSubsection title="视频设置">
                         <VideoDefaultFields
                           title="设置跑步"
-                          videoModel={videoModel}
-                          videoDurationSeconds={videoDurationSeconds}
-                          videoResolution={videoResolution}
-                          videoDurationOptions={videoDurationOptions}
-                          videoResolutionOptions={videoResolutionOptions}
+                          videoModel={advancedRunVideoModel}
+                          videoDurationSeconds={advancedRunVideoDurationSeconds}
+                          videoResolution={advancedRunVideoResolution}
+                          videoDurationOptions={advancedRunVideoDurationOptions}
+                          videoResolutionOptions={advancedRunVideoResolutionOptions}
                           videoModels={videoModels}
-                          onChangeVideoModel={handleChangeVideoModel}
-                          onChangeVideoDuration={setVideoDurationSeconds}
-                          onChangeVideoResolution={setVideoResolution}
+                          onChangeVideoModel={(nextModel) => handleChangeVideoModel(nextModel, setAdvancedRunVideoModel, setAdvancedRunVideoDurationSeconds, setAdvancedRunVideoResolution)}
+                          onChangeVideoDuration={setAdvancedRunVideoDurationSeconds}
+                          onChangeVideoResolution={setAdvancedRunVideoResolution}
                         />
                         <div className="prompt-grid">
                           <label className="field">
@@ -2513,7 +2775,14 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
                   content: (
                     <div className="module01-settings-fields">
                       <SettingsSubsection title="图片设置">
-                        {renderDirectionImageFields("设置攻击 1 中间帧")}
+                        {renderDirectionImageFields(
+                          "设置攻击 1 中间帧",
+                          advancedAttackImageModel,
+                          advancedAttackImageGenerationSize,
+                          advancedAttackImageGenerationSizeOptions,
+                          setAdvancedAttackImageModel,
+                          setAdvancedAttackImageGenerationSize
+                        )}
                         <div className="form-grid">
                           <label className="field">
                             准备缩放比例
@@ -2528,15 +2797,15 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
                       <SettingsSubsection title="视频设置">
                         <VideoDefaultFields
                           title="设置攻击 1 "
-                          videoModel={videoModel}
-                          videoDurationSeconds={videoDurationSeconds}
-                          videoResolution={videoResolution}
-                          videoDurationOptions={videoDurationOptions}
-                          videoResolutionOptions={videoResolutionOptions}
-                          videoModels={videoModels}
-                          onChangeVideoModel={handleChangeVideoModel}
-                          onChangeVideoDuration={setVideoDurationSeconds}
-                          onChangeVideoResolution={setVideoResolution}
+                          videoModel={advancedAttackVideoModel}
+                          videoDurationSeconds={advancedAttackVideoDurationSeconds}
+                          videoResolution={advancedAttackVideoResolution}
+                          videoDurationOptions={advancedAttackVideoDurationOptions}
+                          videoResolutionOptions={advancedAttackVideoResolutionOptions}
+                          videoModels={attackVideoModels}
+                          onChangeVideoModel={(nextModel) => handleChangeVideoModel(nextModel, setAdvancedAttackVideoModel, setAdvancedAttackVideoDurationSeconds, setAdvancedAttackVideoResolution, attackVideoModels)}
+                          onChangeVideoDuration={setAdvancedAttackVideoDurationSeconds}
+                          onChangeVideoResolution={setAdvancedAttackVideoResolution}
                         />
                         <div className="prompt-grid">
                           <label className="field">
@@ -2576,15 +2845,15 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
                       <SettingsSubsection title="视频设置">
                         <VideoDefaultFields
                           title="设置跳跃"
-                          videoModel={videoModel}
-                          videoDurationSeconds={videoDurationSeconds}
-                          videoResolution={videoResolution}
-                          videoDurationOptions={videoDurationOptions}
-                          videoResolutionOptions={videoResolutionOptions}
+                          videoModel={advancedJumpVideoModel}
+                          videoDurationSeconds={advancedJumpVideoDurationSeconds}
+                          videoResolution={advancedJumpVideoResolution}
+                          videoDurationOptions={advancedJumpVideoDurationOptions}
+                          videoResolutionOptions={advancedJumpVideoResolutionOptions}
                           videoModels={videoModels}
-                          onChangeVideoModel={handleChangeVideoModel}
-                          onChangeVideoDuration={setVideoDurationSeconds}
-                          onChangeVideoResolution={setVideoResolution}
+                          onChangeVideoModel={(nextModel) => handleChangeVideoModel(nextModel, setAdvancedJumpVideoModel, setAdvancedJumpVideoDurationSeconds, setAdvancedJumpVideoResolution)}
+                          onChangeVideoDuration={setAdvancedJumpVideoDurationSeconds}
+                          onChangeVideoResolution={setAdvancedJumpVideoResolution}
                         />
                         <div className="prompt-grid">
                           <label className="field">
@@ -4207,13 +4476,48 @@ function normalizeDraft(
   if (!isKnownVideoModel(next.videoModel)) {
     next.videoModel = fallback.videoModel;
   }
+  next.directionWalkImageModel = normalizeKnownImageModel(next.directionWalkImageModel, next.directionImageModel);
+  next.directionIdleImageModel = normalizeKnownImageModel(next.directionIdleImageModel, next.directionImageModel);
+  next.advancedRunImageModel = normalizeKnownImageModel(next.advancedRunImageModel, next.directionImageModel);
+  next.advancedAttackImageModel = normalizeKnownImageModel(next.advancedAttackImageModel, next.directionImageModel);
+  next.walkVideoModel = normalizeKnownVideoModel(next.walkVideoModel, next.videoModel);
+  next.advancedRunVideoModel = normalizeKnownVideoModel(next.advancedRunVideoModel, next.videoModel);
+  next.advancedAttackVideoModel = normalizeKnownVideoModel(
+    isAttackVideoModelAllowed(next.advancedAttackVideoModel) ? next.advancedAttackVideoModel : "",
+    isAttackVideoModelAllowed(next.videoModel) ? next.videoModel : fallback.videoModel
+  );
+  next.advancedJumpVideoModel = normalizeKnownVideoModel(next.advancedJumpVideoModel, next.videoModel);
   next.imageGenerationSize = normalizeImageGenerationSize(next.imageModel, next.imageGenerationSize);
   next.directionImageGenerationSize = normalizeImageGenerationSize(
     next.directionImageModel,
     next.directionImageGenerationSize
   );
+  next.directionWalkImageGenerationSize = normalizeImageGenerationSize(
+    next.directionWalkImageModel,
+    Number(next.directionWalkImageGenerationSize)
+  );
+  next.directionIdleImageGenerationSize = normalizeImageGenerationSize(
+    next.directionIdleImageModel,
+    Number(next.directionIdleImageGenerationSize)
+  );
+  next.advancedRunImageGenerationSize = normalizeImageGenerationSize(
+    next.advancedRunImageModel,
+    Number(next.advancedRunImageGenerationSize)
+  );
+  next.advancedAttackImageGenerationSize = normalizeImageGenerationSize(
+    next.advancedAttackImageModel,
+    Number(next.advancedAttackImageGenerationSize)
+  );
   next.videoDurationSeconds = normalizeVideoDuration(next.videoModel, Number(next.videoDurationSeconds));
   next.videoResolution = normalizeVideoResolution(next.videoModel, String(next.videoResolution ?? ""));
+  next.walkVideoDurationSeconds = normalizeVideoDuration(next.walkVideoModel, Number(next.walkVideoDurationSeconds));
+  next.walkVideoResolution = normalizeVideoResolution(next.walkVideoModel, String(next.walkVideoResolution ?? ""));
+  next.advancedRunVideoDurationSeconds = normalizeVideoDuration(next.advancedRunVideoModel, Number(next.advancedRunVideoDurationSeconds));
+  next.advancedRunVideoResolution = normalizeVideoResolution(next.advancedRunVideoModel, String(next.advancedRunVideoResolution ?? ""));
+  next.advancedAttackVideoDurationSeconds = normalizeVideoDuration(next.advancedAttackVideoModel, Number(next.advancedAttackVideoDurationSeconds));
+  next.advancedAttackVideoResolution = normalizeVideoResolution(next.advancedAttackVideoModel, String(next.advancedAttackVideoResolution ?? ""));
+  next.advancedJumpVideoDurationSeconds = normalizeVideoDuration(next.advancedJumpVideoModel, Number(next.advancedJumpVideoDurationSeconds));
+  next.advancedJumpVideoResolution = normalizeVideoResolution(next.advancedJumpVideoModel, String(next.advancedJumpVideoResolution ?? ""));
   next.frameCount = clamp(Number(next.frameCount), 1, 120);
   next.fps = clamp(Number(next.fps), 1, FPS_MAX);
   next.tolerance = clamp(Number(next.tolerance), 0, 255);
@@ -4315,12 +4619,24 @@ function isKnownImageModel(model: string): boolean {
   return IMAGE_MODELS.some((item) => item.id === model);
 }
 
+function normalizeKnownImageModel(model: string, fallbackModel: string): string {
+  return isKnownImageModel(model) ? model : fallbackModel;
+}
+
 function isKnownImageStyle(style: string): boolean {
   return IMAGE_STYLES.some((item) => item.id === style);
 }
 
 function isKnownVideoModel(model: string): boolean {
   return VIDEO_MODELS.some((item) => item.id === model);
+}
+
+function normalizeKnownVideoModel(model: string, fallbackModel: string): string {
+  return isKnownVideoModel(model) ? model : fallbackModel;
+}
+
+function isAttackVideoModelAllowed(model: string): boolean {
+  return model !== APIMART_SEEDANCE_1_PRO_QUALITY_MODEL;
 }
 
 function chooseCompatibleModelId(
@@ -4790,26 +5106,46 @@ function buildDefaultDraft(defaultKeys: SavedAnimationKeys): SpriteAnimatorDraft
     finalImagePrompt: "",
     directionImageModel: DEFAULT_IMAGE_MODEL,
     directionImageGenerationSize: getDefaultImageGenerationSize(DEFAULT_IMAGE_MODEL),
+    directionWalkImageModel: DEFAULT_IMAGE_MODEL,
+    directionWalkImageGenerationSize: getDefaultImageGenerationSize(DEFAULT_IMAGE_MODEL),
+    directionIdleImageModel: DEFAULT_IMAGE_MODEL,
+    directionIdleImageGenerationSize: getDefaultImageGenerationSize(DEFAULT_IMAGE_MODEL),
     directionIdleSystemPrompt: DEFAULT_DIRECTION_IDLE_SYSTEM_PROMPT,
     directionIdleCustomPrompt: DEFAULT_DIRECTION_CUSTOM_PROMPT,
     finalDirectionIdlePrompt: "",
     directionWalkSystemPrompt: DEFAULT_DIRECTION_WALK_SYSTEM_PROMPT,
     directionWalkCustomPrompt: DEFAULT_DIRECTION_CUSTOM_PROMPT,
     finalDirectionWalkPrompt: "",
+    walkVideoModel: DEFAULT_VIDEO_MODEL,
+    walkVideoDurationSeconds: getDefaultVideoDuration(DEFAULT_VIDEO_MODEL),
+    walkVideoResolution: getDefaultVideoResolution(DEFAULT_VIDEO_MODEL),
     videoSystemPrompt: DEFAULT_VIDEO_SYSTEM_PROMPT,
     videoCustomPrompt: DEFAULT_VIDEO_CUSTOM_PROMPT,
     finalVideoPrompt: "",
     advancedRunSystemPrompt: DEFAULT_ADVANCED_RUN_SYSTEM_PROMPT,
     advancedRunCustomPrompt: DEFAULT_ADVANCED_RUN_CUSTOM_PROMPT,
     finalAdvancedRunPrompt: "",
+    advancedRunImageModel: DEFAULT_IMAGE_MODEL,
+    advancedRunImageGenerationSize: getDefaultImageGenerationSize(DEFAULT_IMAGE_MODEL),
+    advancedRunVideoModel: DEFAULT_VIDEO_MODEL,
+    advancedRunVideoDurationSeconds: getDefaultVideoDuration(DEFAULT_VIDEO_MODEL),
+    advancedRunVideoResolution: getDefaultVideoResolution(DEFAULT_VIDEO_MODEL),
     advancedRunVideoSystemPrompt: DEFAULT_ADVANCED_RUN_VIDEO_SYSTEM_PROMPT,
     advancedRunVideoCustomPrompt: DEFAULT_ADVANCED_RUN_VIDEO_CUSTOM_PROMPT,
     finalAdvancedRunVideoPrompt: "",
     advancedAttackSystemPrompt: DEFAULT_ADVANCED_ATTACK_SYSTEM_PROMPT,
     advancedAttackCustomPrompt: DEFAULT_ADVANCED_ATTACK_CUSTOM_PROMPT,
     finalAdvancedAttackPrompt: "",
+    advancedAttackImageModel: DEFAULT_IMAGE_MODEL,
+    advancedAttackImageGenerationSize: getDefaultImageGenerationSize(DEFAULT_IMAGE_MODEL),
+    advancedAttackVideoModel: DEFAULT_VIDEO_MODEL,
+    advancedAttackVideoDurationSeconds: getDefaultVideoDuration(DEFAULT_VIDEO_MODEL),
+    advancedAttackVideoResolution: getDefaultVideoResolution(DEFAULT_VIDEO_MODEL),
     advancedAttackMidframeCustomPrompt: DEFAULT_ADVANCED_ATTACK_MIDFRAME_CUSTOM_PROMPT,
     advancedAttackStartScale: DEFAULT_ATTACK_START_SCALE,
+    advancedJumpVideoModel: DEFAULT_VIDEO_MODEL,
+    advancedJumpVideoDurationSeconds: getDefaultVideoDuration(DEFAULT_VIDEO_MODEL),
+    advancedJumpVideoResolution: getDefaultVideoResolution(DEFAULT_VIDEO_MODEL),
     advancedJumpSystemPrompt: DEFAULT_ADVANCED_JUMP_SYSTEM_PROMPT,
     advancedJumpCustomPrompt: DEFAULT_ADVANCED_JUMP_CUSTOM_PROMPT,
     finalAdvancedJumpPrompt: "",
