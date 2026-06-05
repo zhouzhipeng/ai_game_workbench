@@ -1,47 +1,214 @@
 # AI Game Workbench
 
-AI-assisted game creation workbench. The first module is `AI Sprite Animator`, a local-first workflow for turning a square pixel-art first frame into sprite animation assets.
+AI Game Workbench 是一个本地优先的 AI 游戏素材工作台。当前主要用于生成、处理和导出 2D 角色动画素材，适合先在本机启动网页使用，再按需要接入自己的 AI API key。
 
-## Current Feature
+项目目前包含两个主要模块：
 
-`AI Sprite Animator` is entered from the game-styled workbench hub. It currently includes:
+- 模块 01：高清 2D 角色制作
+- 模块 02：像素角色制作
 
-- upload/generate first-frame entry points
-- first-frame direction selector: front, back, left, right
-- editable image and animation prompt controls
-- custom first-frame generation size from 64 to 1024 pixels
-- saved web UI keys: asset key, animation key, FPS, target size, loop
-- OpenRouter provider payload builders
-- local project state storage
-- ffmpeg frame extraction helpers
-- sharp color-key background removal
-- nearest-neighbor resize helpers
-- sprite sheet composition helper
-- preview GIF pipeline script
+本项目不内置任何私人 API key。普通用户启动后进入网页，在「API 设置」里选择服务商并填写自己的 key 即可使用。
 
-Godot metadata is not generated. The saved keys are stored in workbench project state and used for naming.
+## 当前能力
 
-## Setup
+### 模块 01：高清 2D 角色制作
+
+模块 01 面向高清 2D 角色动画流程，支持：
+
+- 一键生成基础角色素材
+- 角色基准模板生成和上传
+- 步行、待机、跑步、跳跃、攻击 1 流程
+- 图片生成和视频生成分步处理
+- 步行、待机、跑步、攻击、跳跃分别保存模型设置
+- 攻击 1 支持起始帧、中间帧和视频生成
+- 视频生成后抽帧、绿幕抠图、循环处理
+- 角色预览
+- Godot 导出
+- 模块设置页统一管理提示词、参考图、模型、处理参数
+
+当前模型策略：
+
+- 图片模型：APIMart GPT-Image-2、OpenRouter GPT-Image-2、Nano Banana 2、本地 GPT Image 2 等按服务商配置显示
+- 视频模型：Seedance 2.0
+- APIMart 的 Seedance 1.0 Pro Quality 可用于步行、跑步、跳跃，但攻击 1 不允许选择该模型
+
+### 模块 02：像素角色制作
+
+模块 02 面向像素角色素材，支持：
+
+- 角色基准模板/待机
+- 步行图
+- 一键处理
+- 像素角色预览
+- 模块设置页管理参考图、提示词、模型、处理参数
+- 固定角色规格处理：64 x 128，角色高度 96px
+- 绿幕抠图、切格、居中、输出透明帧
+
+## 推荐使用方式
+
+### 方式一：下载 Release 压缩包
+
+如果你只是想使用工具，推荐下载 GitHub Releases 里的便携包。
+
+便携包应包含：
+
+- 源码
+- `node_modules`
+- `tools/launcher/release/AiGameWorkbenchLauncher.exe`
+- `tools/cloudflared/cloudflared.exe`
+- `presets`
+
+解压后双击：
+
+```text
+tools\launcher\release\AiGameWorkbenchLauncher.exe
+```
+
+启动器会自动：
+
+1. 启动本地 API 服务
+2. 启动网页前端
+3. 启动 Cloudflare Quick Tunnel
+4. 等待公网地址可用
+5. 打开浏览器进入工作台
+
+终端窗口需要保持打开。关闭终端或按 `Ctrl+C` 会停止后端、前端和 Cloudflare tunnel。
+
+### 方式二：源码开发启动
+
+先安装依赖：
 
 ```bash
 npm install
 ```
 
-Copy `.env.example` to `.env` if running the API server with real providers.
+启动整套工作台：
+
+```bash
+npm run dev:workbench
+```
+
+单独启动：
+
+```bash
+npm run dev:server
+npm run dev:web
+```
+
+默认地址：
+
+- API 服务：`http://127.0.0.1:8787`
+- 网页前端：Vite 启动后会在终端输出地址，通常是 `http://127.0.0.1:5173`
+
+## API 设置
+
+进入网页首页后，打开「API Settings / API 设置」。
+
+目前用户侧主要选择一个服务商：
+
+- APIMart
+- OpenRouter
+
+选择服务商后填写该服务商的 API key 并保存。后续模块里的模型下拉只会显示当前服务商可用的模型，以及无需 key 的本地模型。
+
+API key 存在浏览器本地 `localStorage`，不会提交到 Git，也不会写进源码。发布 Release 包前仍然建议检查不要把自己的 `.env`、`storage` 或浏览器数据打包进去。
+
+## Cloudflare Quick Tunnel
+
+视频模型通常需要能被云端访问的 HTTPS 图片地址。工作台启动时会自动创建 Cloudflare Quick Tunnel，把本地素材服务临时暴露成一个 `https://xxxx.trycloudflare.com` 地址。
+
+启动脚本查找 `cloudflared.exe` 的顺序：
+
+1. 环境变量 `CLOUDFLARED_PATH`
+2. `tools/cloudflared/cloudflared.exe`
+3. `tools/cloudflared.exe`
+4. `apps/server/storage/runtime/cloudflared/cloudflared.exe`
+
+如果都找不到，脚本会自动下载 Cloudflare Quick Tunnel runtime。
+
+如果你在 Release 包里带上：
+
+```text
+tools\cloudflared\cloudflared.exe
+```
+
+用户第一次启动时就不需要再下载 cloudflared。
+
+不启动公网 tunnel：
+
+```powershell
+tools\launcher\release\AiGameWorkbenchLauncher.exe -NoTunnel
+```
+
+仅检查启动条件：
+
+```powershell
+tools\launcher\release\AiGameWorkbenchLauncher.exe -Check -NoTunnel
+```
+
+## 目录说明
+
+```text
+apps/server        Fastify API 服务、素材存储、AI/provider 调用、图片/视频处理
+apps/web           React + Vite 前端
+packages/core      共享类型、模型配置、纯逻辑工具
+presets            默认提示词、默认参考图和模块配置
+scripts            启动、测试、打包脚本
+tools/launcher     Windows 启动器源码和 release exe
+```
+
+运行时生成内容主要在：
+
+```text
+apps/server/storage
+```
+
+这里会保存：
+
+- 用户创建的角色文件夹
+- 上传图片
+- AI 返回图片和视频
+- 抽帧结果
+- 导出结果
+- provider 设置和运行配置
+- Cloudflare tunnel 配置
+
+`apps/server/storage` 是运行数据，不应该提交到 Git，也不应该放进公开源码包，除非你明确要发布示例素材。
+
+## presets 说明
+
+`presets` 是默认配置和默认素材位置，适合随源码和 Release 包一起发布。
+
+用户在网页端覆盖提示词或参考图时，应覆盖到当前项目使用的 presets 位置。这样开源压缩包里可以直接带完整默认 presets，用户也能在本地替换成自己的版本。
+
+不要把 API key 放进 presets。
+
+## 环境变量
+
+普通用户使用网页 API 设置即可，不一定需要 `.env`。
+
+开发或服务端 fallback 可复制 `.env.example` 为 `.env`：
 
 ```text
 OPENROUTER_API_KEY=
+OPENAI_COMPATIBLE_BASE_URL=
+OPENAI_COMPATIBLE_API_KEY=
+ADMIN_SETTINGS_TOKEN=
 PUBLIC_ASSET_BASE_URL=http://localhost:8787/assets
 FFMPEG_PATH=ffmpeg
 STORAGE_DIR=./storage
+PRESETS_DIR=./presets
 PORT=8787
 ```
 
-Relative `STORAGE_DIR` values are resolved from `apps/server`, so the default `./storage` is always `apps/server/storage` no matter where the server is started from. Generated AI images, downloaded AI videos, character assets, jobs, and provider settings all use that same storage root unless `STORAGE_DIR` is set to an absolute path.
+说明：
 
-`ffmpeg-static` is installed for the test pipeline, so the e2e script does not require a global ffmpeg install.
+- 相对 `STORAGE_DIR` 会从 `apps/server` 解析，所以默认 `./storage` 实际是 `apps/server/storage`
+- 相对 `PRESETS_DIR` 会从仓库根目录解析，默认是 `./presets`
+- `PUBLIC_ASSET_BASE_URL` 通常由启动脚本写入 Cloudflare tunnel 地址，不需要手动填
+- `.env` 不要提交
 
-## Commands
+## 常用命令
 
 ```bash
 npm test
@@ -50,81 +217,84 @@ npm run build
 npm run dev:workbench
 npm run dev:server
 npm run dev:web
+npm run test:launcher
+npm run test:workbench-startup
+npm run build:launcher
 ```
 
-Server: `http://127.0.0.1:8787`  
-Web: Vite prints its local URL when started.
+按工作区运行：
 
-## One-Click Windows Launcher
-
-Double-click:
-
-```text
-tools\launcher\release\AiGameWorkbenchLauncher.exe
+```bash
+npm run test -w apps/server
+npm run test -w apps/web
+npm run test -w packages/core
+npm run typecheck -w apps/server
+npm run typecheck -w apps/web
+npm run typecheck -w packages/core
 ```
 
-The launcher runs `scripts/start-workbench.ps1 -OpenBrowser`, which starts or reuses the API server, starts a Cloudflare Quick Tunnel with `cloudflared`, starts the Vite web server, writes the temporary public URL into server storage, then opens the workbench page.
+## 重新构建 Windows 启动器
 
-Advanced script arguments can be passed to the exe. For example:
-
-```powershell
-tools\launcher\release\AiGameWorkbenchLauncher.exe -NoTunnel
-tools\launcher\release\AiGameWorkbenchLauncher.exe -Check -NoTunnel
-```
-
-Rebuild the exe after changing launcher source:
+修改启动器源码后运行：
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build-launcher.ps1
 ```
 
-`npm run dev:workbench` starts or reuses the API server, Cloudflare Quick Tunnel, and Vite web server together. The script looks for `cloudflared` on `PATH`, `tools\cloudflared\cloudflared.exe`, or `tools\cloudflared.exe`; if it is missing, the script downloads it into ignored runtime storage at `apps/server/storage/runtime/cloudflared/cloudflared.exe`. `CLOUDFLARED_PATH` can point to a custom exe. The generated `https://*.trycloudflare.com` URL is written to `apps/server/storage/config/public-tunnel.json`, and the web app uses it automatically for uploaded images that cloud video models need to fetch.
-
-```powershell
-$env:CLOUDFLARED_PATH="E:\tools\cloudflared.exe"
-npm run dev:workbench
-```
-
-`-NoNgrok` is still accepted as a legacy alias for `-NoTunnel`.
-
-## OpenRouter Key Note
-
-OpenRouter provisioning or management keys can create and manage API keys, but they cannot call model inference endpoints directly. The e2e script detects provisioning keys and creates a temporary limited inference key, then deletes it at the end.
-
-If OpenRouter returns provider Terms of Service errors for model calls, create a normal inference API key in OpenRouter settings or resolve the provider/account requirement in OpenRouter before rerunning the e2e test.
-
-## E2E Pipeline
-
-Place local test files in:
+输出位置：
 
 ```text
+tools\launcher\release\AiGameWorkbenchLauncher.exe
+```
+
+## 发布 Release 包建议
+
+如果要在 GitHub Releases 发布便携包，建议压缩包包含：
+
+```text
+apps/
+packages/
+presets/
+scripts/
+tools/
+node_modules/
+package.json
+package-lock.json
+tsconfig.base.json
+README.md
+.env.example
+```
+
+建议不要包含：
+
+```text
+.git/
+.env
+apps/server/storage/
+storage/
+Export/
 test_api_and_image/
-  Openrouter_api.txt
-  <reference-image>.png|jpg|jpeg|webp
+apps/server/output/
+*.log
 ```
 
-Run:
+如果想让用户双击就能用，Release 包可以带上 `node_modules` 和 `tools/cloudflared/cloudflared.exe`。包会比较大，但体验最简单。
 
-```bash
-npm run e2e:openrouter
-```
+## 开源注意事项
 
-The script attempts:
+发布前至少检查：
 
-1. reference image + prompt -> square front-facing pixel-art first frame
-2. first frame + running prompt -> OpenRouter image-to-video
-3. MP4 download
-4. ffmpeg frame extraction
-5. key-color background removal
-6. nearest-neighbor resize
-7. sprite sheet PNG export
-8. preview GIF export
+- 没有真实 API key
+- 没有 `.env`
+- 没有私人角色素材
+- 没有 `apps/server/storage`
+- 没有测试用图片、视频、导出成品
+- README 中的启动方式和 Release 包结构一致
 
-Outputs are written under `storage/e2e-*`, which is ignored by git.
+## 已知限制
 
-## Known Limits
-
-- The first UI version is a functional shell, not a complete editor.
-- Live image/video generation depends on OpenRouter provider availability and account permissions.
-- Uploaded local images need a public URL or object storage before cloud video models can fetch them.
-- Full pixel editing, magic wand cleanup, and Godot metadata export are intentionally deferred.
+- 当前仍是本地工作台，不是多用户在线 SaaS
+- API key 保存在浏览器本地，适合个人本机使用
+- Cloudflare Quick Tunnel 是临时公网地址，每次启动可能变化
+- AI 生成质量取决于所选模型、服务商、账号权限和提示词
+- 视频模型需要公网 HTTPS 图片 URL，本地 `127.0.0.1` 图片只能网页预览，云端模型无法直接访问
