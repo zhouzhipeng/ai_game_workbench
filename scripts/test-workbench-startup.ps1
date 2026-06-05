@@ -59,12 +59,18 @@ $startScript = Get-Content -LiteralPath $startScriptPath -Raw
 if ($startScript -notmatch "function Write-StartupProgress") {
   Write-Error "Expected start-workbench.ps1 to expose startup percentage progress."
 }
+if ($startScript -notmatch "function Wait-WorkbenchUntilStopped") {
+  Write-Error "Expected start-workbench.ps1 to keep a control terminal alive after startup."
+}
+if ($startScript -notmatch "function Stop-WorkbenchServiceProcesses") {
+  Write-Error "Expected start-workbench.ps1 to stop workbench services from the control terminal."
+}
 $tunnelWaitIndex = $startScript.IndexOf("Wait-CloudflaredTunnelUrl")
 $webStartIndex = $startScript.IndexOf('Start-WorkbenchProcess "web"')
 if ($tunnelWaitIndex -lt 0 -or $webStartIndex -lt 0 -or $webStartIndex -lt $tunnelWaitIndex) {
   Write-Error "Expected web startup to happen only after cloudflared tunnel readiness is checked."
 }
-Write-Host "PASS startup script reports progress and delays web until tunnel readiness"
+Write-Host "PASS startup script reports progress, delays web until tunnel readiness, and keeps a control terminal"
 
 try {
   $fakeApi = Start-TestNodeServer "fake-api" @"

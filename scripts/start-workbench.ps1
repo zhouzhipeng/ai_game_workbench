@@ -5,7 +5,8 @@ param(
   [switch]$NoTunnel,
   [switch]$NoNgrok,
   [switch]$OpenBrowser,
-  [switch]$Check
+  [switch]$Check,
+  [switch]$ExitAfterStart
 )
 
 Set-StrictMode -Version Latest
@@ -150,6 +151,64 @@ function Stop-ExistingWorkbenchTunnelProcesses([int]$Port) {
   }
 }
 
+function Get-WorkbenchServiceProcesses([int]$ServerPort, [int]$WebPort) {
+  $escapedRepoRoot = [Regex]::Escape($repoRoot)
+  $serverPortPattern = "http://127.0.0.1:$ServerPort"
+  $candidates = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
+    $commandLine = [string]$_.CommandLine
+    if (-not $commandLine) {
+      return $false
+    }
+    if ($_.Name -ieq "cloudflared.exe") {
+      return $commandLine -like "*tunnel*" -and $commandLine -like "*$serverPortPattern*"
+    }
+    if ($commandLine -notmatch $escapedRepoRoot) {
+      return $false
+    }
+    return (
+      ($_.Name -in @("node.exe", "cmd.exe")) -and (
+        $commandLine -like "*run dev:server*" -or
+        $commandLine -like "*run dev:web*" -or
+        $commandLine -like "*run dev -w apps/server*" -or
+        $commandLine -like "*run dev -w apps/web*" -or
+        $commandLine -like "*tsx*watch src/index.ts*" -or
+        $commandLine -like "*src/index.ts*" -or
+        $commandLine -like "*vite.js*--host 127.0.0.1*"
+      )
+    )
+  })
+  return $candidates | Sort-Object ProcessId -Descending
+}
+
+function Stop-WorkbenchServiceProcesses([int]$ServerPort, [int]$WebPort) {
+  Write-Host ""
+  Write-Host "Stopping AI Game Workbench services..."
+  foreach ($process in @(Get-WorkbenchServiceProcesses $ServerPort $WebPort)) {
+    Write-Host "Stopping $($process.Name) PID $($process.ProcessId)"
+    Stop-Process -Id $process.ProcessId -Force -ErrorAction SilentlyContinue
+  }
+  Clear-PublicTunnelConfig
+}
+
+function Wait-WorkbenchUntilStopped([int]$ServerPort, [int]$WebPort) {
+  Write-Host ""
+  Write-Host "AI Game Workbench is running."
+  Write-Host "Keep this terminal open while working."
+  Write-Host "Press Ctrl+C or close this terminal to stop backend, frontend, and Cloudflare tunnel."
+  try {
+    while ($true) {
+      Start-Sleep -Seconds 2
+      $serviceCount = @(Get-WorkbenchServiceProcesses $ServerPort $WebPort).Count
+      if ($serviceCount -eq 0) {
+        Write-Host "Workbench services are no longer running."
+        return
+      }
+    }
+  } finally {
+    Stop-WorkbenchServiceProcesses $ServerPort $WebPort
+  }
+}
+
 function Wait-CloudflaredTunnelUrl([int]$TimeoutSeconds = 60, [int]$StartPercent = 36, [int]$EndPercent = 72) {
   for ($i = 0; $i -lt $TimeoutSeconds; $i++) {
     $url = Get-CloudflaredTunnelUrl
@@ -253,3 +312,7 @@ if ($OpenBrowser) {
 }
 Write-StartupProgress 100 "Startup complete."
 Write-Progress -Activity "AI Game Workbench startup" -Completed
+
+if (-not $ExitAfterStart) {
+  Wait-WorkbenchUntilStopped $ServerPort $WebPort
+}
