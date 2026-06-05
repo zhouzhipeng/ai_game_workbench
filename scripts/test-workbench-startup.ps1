@@ -53,6 +53,18 @@ $apiPort = Get-FreeTcpPort
 $webPort = Get-FreeTcpPort
 $fakeApi = $null
 $fakeWeb = $null
+$startScriptPath = Join-Path $repoRoot "scripts\start-workbench.ps1"
+$startScript = Get-Content -LiteralPath $startScriptPath -Raw
+
+if ($startScript -notmatch "function Write-StartupProgress") {
+  Write-Error "Expected start-workbench.ps1 to expose startup percentage progress."
+}
+$tunnelWaitIndex = $startScript.IndexOf("Wait-CloudflaredTunnelUrl")
+$webStartIndex = $startScript.IndexOf('Start-WorkbenchProcess "web"')
+if ($tunnelWaitIndex -lt 0 -or $webStartIndex -lt 0 -or $webStartIndex -lt $tunnelWaitIndex) {
+  Write-Error "Expected web startup to happen only after cloudflared tunnel readiness is checked."
+}
+Write-Host "PASS startup script reports progress and delays web until tunnel readiness"
 
 try {
   $fakeApi = Start-TestNodeServer "fake-api" @"
@@ -82,7 +94,7 @@ http.createServer((_request, response) => {
   $previousErrorActionPreference = $ErrorActionPreference
   $ErrorActionPreference = "Continue"
   try {
-    $output = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repoRoot "scripts\start-workbench.ps1") -NoTunnel -ServerPort $apiPort -WebPort $webPort 2>&1
+    $output = & powershell -NoProfile -ExecutionPolicy Bypass -File $startScriptPath -NoTunnel -ServerPort $apiPort -WebPort $webPort 2>&1
     $exitCode = $LASTEXITCODE
   } finally {
     $ErrorActionPreference = $previousErrorActionPreference

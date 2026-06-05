@@ -17,6 +17,15 @@ $logDir = Join-Path $serverStorageDir "logs\workbench"
 $publicTunnelConfigPath = Join-Path $serverStorageDir "config\public-tunnel.json"
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 
+function Write-StartupProgress([int]$Percent, [string]$Message) {
+  if ($Check) {
+    return
+  }
+  $boundedPercent = [Math]::Max(0, [Math]::Min(100, $Percent))
+  Write-Progress -Activity "AI Game Workbench startup" -Status $Message -PercentComplete $boundedPercent
+  Write-Host ("[{0,3}%] {1}" -f $boundedPercent, $Message)
+}
+
 function Resolve-CloudflaredExe([string]$RequestedPath) {
   if ($RequestedPath.Trim()) {
     if (Test-Path $RequestedPath) {
@@ -42,7 +51,7 @@ function Resolve-CloudflaredExe([string]$RequestedPath) {
   }
   $runtimeDir = Split-Path -Parent $runtimeExe
   New-Item -ItemType Directory -Force -Path $runtimeDir | Out-Null
-  Write-Host "cloudflared.exe was not found. Downloading Cloudflare Quick Tunnel runtime..."
+  Write-StartupProgress 8 "cloudflared.exe not found; downloading Cloudflare Quick Tunnel runtime..."
   try {
     Invoke-WebRequest `
       -Uri "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe" `
@@ -130,12 +139,26 @@ function Get-CloudflaredTunnelUrl {
   return $null
 }
 
-function Wait-CloudflaredTunnelUrl([int]$TimeoutSeconds = 60) {
+function Stop-ExistingWorkbenchTunnelProcesses([int]$Port) {
+  $pattern = "http://127.0.0.1:$Port"
+  $processes = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
+    $_.Name -ieq "cloudflared.exe" -and $_.CommandLine -like "*tunnel*" -and $_.CommandLine -like "*$pattern*"
+  })
+  foreach ($process in $processes) {
+    Write-StartupProgress 34 "Stopping previous cloudflared tunnel process $($process.ProcessId)..."
+    Stop-Process -Id $process.ProcessId -Force -ErrorAction SilentlyContinue
+  }
+}
+
+function Wait-CloudflaredTunnelUrl([int]$TimeoutSeconds = 60, [int]$StartPercent = 36, [int]$EndPercent = 72) {
   for ($i = 0; $i -lt $TimeoutSeconds; $i++) {
     $url = Get-CloudflaredTunnelUrl
     if ($url) {
+      Write-StartupProgress $EndPercent "Cloudflare tunnel URL received."
       return $url
     }
+    $percent = $StartPercent + [Math]::Floor((($EndPercent - $StartPercent) * $i) / [Math]::Max(1, $TimeoutSeconds))
+    Write-StartupProgress $percent "Waiting for Cloudflare tunnel URL..."
     Start-Sleep -Seconds 1
   }
   throw "cloudflared startup timed out before it printed a trycloudflare.com URL. Check logs at $logDir"
@@ -178,29 +201,41 @@ if ($Check) {
 }
 
 Clear-PublicTunnelConfig
+Write-StartupProgress 5 "Preparing local storage and startup logs..."
 
 if (-not (Test-WorkbenchApi $ServerPort $serverStorageDir)) {
   if (Test-TcpPort $ServerPort) {
     throw "Port $ServerPort is already in use, but it is not the AI Game Workbench API with storage $serverStorageDir. Stop the process using that port or start the workbench with a different -ServerPort."
   }
   Remove-Item Env:\PUBLIC_ASSET_BASE_URL -ErrorAction SilentlyContinue
+  Write-StartupProgress 15 "Starting API server..."
   Start-WorkbenchProcess "server" $npmCmd @("run", "dev:server") | Out-Null
   Wait-Until { Test-WorkbenchApi $ServerPort $serverStorageDir } "server"
+  Write-StartupProgress 28 "API server is ready."
 } else {
+  Write-StartupProgress 28 "API server is already ready."
   Write-Host "Server is already running: http://127.0.0.1:$ServerPort"
 }
 
 if (-not $disableTunnel) {
+  Stop-ExistingWorkbenchTunnelProcesses $ServerPort
+  Write-StartupProgress 35 "Starting Cloudflare tunnel before web startup..."
   Start-WorkbenchProcess "cloudflared" $cloudflaredExe @("tunnel", "--url", "http://127.0.0.1:$ServerPort") | Out-Null
   $tunnelUrl = Wait-CloudflaredTunnelUrl
   $publicAssetBaseUrl = Write-PublicTunnelConfig $tunnelUrl
+  Write-StartupProgress 75 "Cloudflare tunnel is ready; web startup can continue."
   Write-Host "cloudflared tunnel is ready: $tunnelUrl"
+} else {
+  Write-StartupProgress 75 "Tunnel disabled; web startup can continue."
 }
 
 if (-not (Test-TcpPort $WebPort)) {
+  Write-StartupProgress 82 "Starting web server..."
   Start-WorkbenchProcess "web" $npmCmd @("run", "dev:web") | Out-Null
   Wait-Until { Test-TcpPort $WebPort } "web"
+  Write-StartupProgress 94 "Web server is ready."
 } else {
+  Write-StartupProgress 94 "Web server is already ready."
   Write-Host "Web is already running: http://127.0.0.1:$WebPort"
 }
 
@@ -213,5 +248,8 @@ if (-not $disableTunnel) {
 Write-Host "Logs: $logDir"
 
 if ($OpenBrowser) {
+  Write-StartupProgress 98 "Opening browser..."
   Start-Process "http://127.0.0.1:$WebPort"
 }
+Write-StartupProgress 100 "Startup complete."
+Write-Progress -Activity "AI Game Workbench startup" -Completed
