@@ -215,21 +215,68 @@ async function validateStartInput(
   if ("error" in firstFrameModel) {
     return { error: true, statusCode: firstFrameModel.statusCode, body: { error: firstFrameModel.error } };
   }
-  const directionImageModel = readString(workflowConfig, "directionImageModel") || input.firstFrame.model;
-  const directionModel = await resolveWorkflowGenerationProviderModel(config, directionImageModel, "image", providerAuth);
-  if ("error" in directionModel) {
-    return { error: true, statusCode: directionModel.statusCode, body: { error: directionModel.error } };
+  const walkImageModel = readWorkflowImageModel(workflowConfig, "directionWalkImageModel", input.firstFrame.model);
+  const walkModel = await resolveWorkflowGenerationProviderModel(config, walkImageModel, "image", providerAuth);
+  if ("error" in walkModel) {
+    return { error: true, statusCode: walkModel.statusCode, body: { error: walkModel.error } };
   }
-  const videoModel = readString(workflowConfig, "videoModel") || DEFAULT_PROVIDER_MODEL_DEFAULTS.videoModelId;
-  const videoProviderModel = await resolveWorkflowGenerationProviderModel(config, videoModel, "video", providerAuth);
-  if ("error" in videoProviderModel) {
-    return { error: true, statusCode: videoProviderModel.statusCode, body: { error: videoProviderModel.error } };
+  const idleImageModel = readWorkflowImageModel(workflowConfig, "directionIdleImageModel", walkModel.model.id);
+  const idleModel = await resolveWorkflowGenerationProviderModel(config, idleImageModel, "image", providerAuth);
+  if ("error" in idleModel) {
+    return { error: true, statusCode: idleModel.statusCode, body: { error: idleModel.error } };
   }
-  const normalizedWorkflowConfig = {
+  const walkVideoModel = readWorkflowVideoModel(workflowConfig, "walkVideoModel", DEFAULT_PROVIDER_MODEL_DEFAULTS.videoModelId);
+  const walkVideoProviderModel = await resolveWorkflowGenerationProviderModel(config, walkVideoModel, "video", providerAuth);
+  if ("error" in walkVideoProviderModel) {
+    return { error: true, statusCode: walkVideoProviderModel.statusCode, body: { error: walkVideoProviderModel.error } };
+  }
+  const normalizedWorkflowConfig: Record<string, unknown> = {
     ...workflowConfig,
-    directionImageModel: directionModel.model.id,
-    videoModel: videoProviderModel.model.id
+    directionWalkImageModel: walkModel.model.id,
+    directionIdleImageModel: idleModel.model.id,
+    walkVideoModel: walkVideoProviderModel.model.id,
+    directionImageModel: walkModel.model.id,
+    videoModel: walkVideoProviderModel.model.id
   };
+
+  if (actions.run) {
+    const runImageModel = readWorkflowImageModel(workflowConfig, "advancedRunImageModel", walkModel.model.id);
+    const runModel = await resolveWorkflowGenerationProviderModel(config, runImageModel, "image", providerAuth);
+    if ("error" in runModel) {
+      return { error: true, statusCode: runModel.statusCode, body: { error: runModel.error } };
+    }
+    const runVideoModel = readWorkflowVideoModel(workflowConfig, "advancedRunVideoModel", walkVideoProviderModel.model.id);
+    const runVideoProviderModel = await resolveWorkflowGenerationProviderModel(config, runVideoModel, "video", providerAuth);
+    if ("error" in runVideoProviderModel) {
+      return { error: true, statusCode: runVideoProviderModel.statusCode, body: { error: runVideoProviderModel.error } };
+    }
+    normalizedWorkflowConfig.advancedRunImageModel = runModel.model.id;
+    normalizedWorkflowConfig.advancedRunVideoModel = runVideoProviderModel.model.id;
+  }
+
+  if (actions.attack1) {
+    const attackImageModel = readWorkflowImageModel(workflowConfig, "advancedAttackImageModel", walkModel.model.id);
+    const attackModel = await resolveWorkflowGenerationProviderModel(config, attackImageModel, "image", providerAuth);
+    if ("error" in attackModel) {
+      return { error: true, statusCode: attackModel.statusCode, body: { error: attackModel.error } };
+    }
+    const attackVideoModel = readWorkflowVideoModel(workflowConfig, "advancedAttackVideoModel", walkVideoProviderModel.model.id);
+    const attackVideoProviderModel = await resolveWorkflowGenerationProviderModel(config, attackVideoModel, "video", providerAuth);
+    if ("error" in attackVideoProviderModel) {
+      return { error: true, statusCode: attackVideoProviderModel.statusCode, body: { error: attackVideoProviderModel.error } };
+    }
+    normalizedWorkflowConfig.advancedAttackImageModel = attackModel.model.id;
+    normalizedWorkflowConfig.advancedAttackVideoModel = attackVideoProviderModel.model.id;
+  }
+
+  if (actions.jump) {
+    const jumpVideoModel = readWorkflowVideoModel(workflowConfig, "advancedJumpVideoModel", walkVideoProviderModel.model.id);
+    const jumpVideoProviderModel = await resolveWorkflowGenerationProviderModel(config, jumpVideoModel, "video", providerAuth);
+    if ("error" in jumpVideoProviderModel) {
+      return { error: true, statusCode: jumpVideoProviderModel.statusCode, body: { error: jumpVideoProviderModel.error } };
+    }
+    normalizedWorkflowConfig.advancedJumpVideoModel = jumpVideoProviderModel.model.id;
+  }
 
   return {
     characterId,
@@ -263,6 +310,18 @@ async function resolveWorkflowGenerationProviderModel(
     return resolved;
   }
   return resolveGenerationProviderModel(config, fallbackModelId, capability, providerAuth);
+}
+
+function readWorkflowImageModel(workflow: Record<string, unknown>, field: string, fallback: string): string {
+  return readString(workflow, field)
+    || readString(workflow, "directionImageModel")
+    || fallback;
+}
+
+function readWorkflowVideoModel(workflow: Record<string, unknown>, field: string, fallback: string): string {
+  return readString(workflow, field)
+    || readString(workflow, "videoModel")
+    || fallback;
 }
 
 async function chooseSelectedProviderModelId(
@@ -387,13 +446,18 @@ async function runDefaultOneClickJob(
   }));
   context.updateStep("base-template", "completed", { resultUrl: readResultUrl(baseTemplate) });
 
-  const directionImageModel = readString(workflow, "directionImageModel") || input.firstFrame.model;
-  const directionSize = readNumber(workflow, "directionImageGenerationSize", input.firstFrame.targetSize);
+  const legacyDirectionSize = readNumber(workflow, "directionImageGenerationSize", input.firstFrame.targetSize);
+  const walkImageModel = readWorkflowImageModel(workflow, "directionWalkImageModel", input.firstFrame.model);
+  const walkImageSize = readNumber(workflow, "directionWalkImageGenerationSize", legacyDirectionSize);
+  const idleImageModel = readWorkflowImageModel(workflow, "directionIdleImageModel", walkImageModel);
+  const idleImageSize = readNumber(workflow, "directionIdleImageGenerationSize", legacyDirectionSize);
   const walkPrompt = requireConfigString(workflow, "finalDirectionWalkPrompt", "四方向步行提示词");
   const idlePrompt = requireConfigString(workflow, "finalDirectionIdlePrompt", "四方向待机提示词");
-  const videoModel = readString(workflow, "videoModel") || DEFAULT_PROVIDER_MODEL_DEFAULTS.videoModelId;
-  const videoDurationSeconds = readNumber(workflow, "videoDurationSeconds", 4);
-  const videoResolution = readString(workflow, "videoResolution") || "720p";
+  const legacyVideoDurationSeconds = readNumber(workflow, "videoDurationSeconds", 4);
+  const legacyVideoResolution = readString(workflow, "videoResolution") || "720p";
+  const walkVideoModel = readWorkflowVideoModel(workflow, "walkVideoModel", DEFAULT_PROVIDER_MODEL_DEFAULTS.videoModelId);
+  const walkVideoDurationSeconds = readNumber(workflow, "walkVideoDurationSeconds", legacyVideoDurationSeconds);
+  const walkVideoResolution = readString(workflow, "walkVideoResolution") || legacyVideoResolution;
   const videoPrompt = requireConfigString(workflow, "finalVideoPrompt", "步行视频提示词");
 
   const walk = await runRequiredStep(context, "walk-4dir", async () => injectJson(app, {
@@ -402,9 +466,9 @@ async function runDefaultOneClickJob(
     headers,
     payload: {
       templateKind: "walk",
-      model: directionImageModel,
+      model: walkImageModel,
       prompt: walkPrompt,
-      targetSize: directionSize,
+      targetSize: walkImageSize,
       keyColor,
       characterTemplateImageDataUrl: await readLocalImageAsDataUrl(baseTemplate)
     }
@@ -417,9 +481,9 @@ async function runDefaultOneClickJob(
     headers,
     payload: {
       templateKind: "idle",
-      model: directionImageModel,
+      model: idleImageModel,
       prompt: idlePrompt,
-      targetSize: directionSize,
+      targetSize: idleImageSize,
       keyColor,
       characterTemplateImageDataUrl: await readLocalImageAsDataUrl(walk)
     }
@@ -429,9 +493,9 @@ async function runDefaultOneClickJob(
   const walkJobId = await runRequiredStep(context, "walk-video", async () => submitVideoAndPoll(app, {
     firstFrameUrl: requirePublicUrl(walk),
     prompt: videoPrompt,
-    model: videoModel,
-    durationSeconds: videoDurationSeconds,
-    resolution: videoResolution,
+    model: walkVideoModel,
+    durationSeconds: walkVideoDurationSeconds,
+    resolution: walkVideoResolution,
     characterId: input.characterId,
     providerAuthHeaders: input.providerAuthHeaders
   }));
@@ -447,6 +511,11 @@ async function runDefaultOneClickJob(
 
   if (input.actions.run) {
     await runOptionalAction(context, "run", async () => {
+      const runImageModel = readWorkflowImageModel(workflow, "advancedRunImageModel", walkImageModel);
+      const runImageSize = readNumber(workflow, "advancedRunImageGenerationSize", legacyDirectionSize);
+      const runVideoModel = readWorkflowVideoModel(workflow, "advancedRunVideoModel", walkVideoModel);
+      const runVideoDurationSeconds = readNumber(workflow, "advancedRunVideoDurationSeconds", walkVideoDurationSeconds);
+      const runVideoResolution = readString(workflow, "advancedRunVideoResolution") || walkVideoResolution;
       const runPrompt = requireConfigString(workflow, "finalAdvancedRunPrompt", "跑步四方向提示词");
       const runVideoPrompt = requireConfigString(workflow, "finalAdvancedRunVideoPrompt", "跑步视频提示词");
       const runKeyframe = await runStep(context, "run-keyframe", async () => injectJson(app, {
@@ -455,9 +524,9 @@ async function runDefaultOneClickJob(
         headers,
         payload: {
           templateKind: "run",
-          model: directionImageModel,
+          model: runImageModel,
           prompt: runPrompt,
-          targetSize: directionSize,
+          targetSize: runImageSize,
           keyColor,
           characterTemplateImageDataUrl: await readLocalImageAsDataUrl(walk)
         }
@@ -466,9 +535,9 @@ async function runDefaultOneClickJob(
       const runJobId = await runStep(context, "run-video", async () => submitVideoAndPoll(app, {
         firstFrameUrl: requirePublicUrl(runKeyframe),
         prompt: runVideoPrompt,
-        model: videoModel,
-        durationSeconds: videoDurationSeconds,
-        resolution: videoResolution,
+        model: runVideoModel,
+        durationSeconds: runVideoDurationSeconds,
+        resolution: runVideoResolution,
         characterId: input.characterId,
         actionKind: "run",
         providerAuthHeaders: input.providerAuthHeaders
@@ -485,6 +554,11 @@ async function runDefaultOneClickJob(
 
   if (input.actions.attack1) {
     await runOptionalAction(context, "attack", async () => {
+      const attackImageModel = readWorkflowImageModel(workflow, "advancedAttackImageModel", walkImageModel);
+      const attackImageSize = readNumber(workflow, "advancedAttackImageGenerationSize", legacyDirectionSize);
+      const attackVideoModel = readWorkflowVideoModel(workflow, "advancedAttackVideoModel", walkVideoModel);
+      const attackVideoDurationSeconds = readNumber(workflow, "advancedAttackVideoDurationSeconds", walkVideoDurationSeconds);
+      const attackVideoResolution = readString(workflow, "advancedAttackVideoResolution") || walkVideoResolution;
       const attackStart = await runStep(context, "attack-start", async () => prepareActionStart(app, workflow, {
         characterId: input.characterId,
         actionKind: "attack-1",
@@ -496,9 +570,9 @@ async function runDefaultOneClickJob(
         headers,
         payload: {
           actionKind: "attack-1",
-          model: directionImageModel,
+          model: attackImageModel,
           prompt: requireConfigString(workflow, "advancedAttackMidframeCustomPrompt", "攻击中间帧提示词"),
-          targetSize: directionSize,
+          targetSize: attackImageSize,
           keyColor,
           startFrameImageDataUrl: await readLocalImageAsDataUrl(attackStart)
         }
@@ -512,9 +586,9 @@ async function runDefaultOneClickJob(
           requirePublicUrl(middle)
         ],
         prompt: requireConfigString(workflow, "finalAdvancedAttackPrompt", "攻击视频提示词"),
-        model: videoModel,
-        durationSeconds: videoDurationSeconds,
-        resolution: videoResolution,
+        model: attackVideoModel,
+        durationSeconds: attackVideoDurationSeconds,
+        resolution: attackVideoResolution,
         characterId: input.characterId,
         actionKind: "attack-1",
         providerAuthHeaders: input.providerAuthHeaders
@@ -531,6 +605,9 @@ async function runDefaultOneClickJob(
 
   if (input.actions.jump) {
     await runOptionalAction(context, "jump", async () => {
+      const jumpVideoModel = readWorkflowVideoModel(workflow, "advancedJumpVideoModel", walkVideoModel);
+      const jumpVideoDurationSeconds = readNumber(workflow, "advancedJumpVideoDurationSeconds", walkVideoDurationSeconds);
+      const jumpVideoResolution = readString(workflow, "advancedJumpVideoResolution") || walkVideoResolution;
       const jumpStart = await runStep(context, "jump-start", async () => prepareActionStart(app, workflow, {
         characterId: input.characterId,
         actionKind: "jump",
@@ -539,9 +616,9 @@ async function runDefaultOneClickJob(
       const jumpJobId = await runStep(context, "jump-video", async () => submitVideoAndPoll(app, {
         firstFrameUrl: requirePublicUrl(jumpStart, input.publicAssetBaseUrl),
         prompt: requireConfigString(workflow, "finalAdvancedJumpPrompt", "跳跃视频提示词"),
-        model: videoModel,
-        durationSeconds: videoDurationSeconds,
-        resolution: videoResolution,
+        model: jumpVideoModel,
+        durationSeconds: jumpVideoDurationSeconds,
+        resolution: jumpVideoResolution,
         characterId: input.characterId,
         actionKind: "jump",
         providerAuthHeaders: input.providerAuthHeaders

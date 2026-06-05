@@ -182,6 +182,56 @@ describe("one-click character jobs route", () => {
     await app.close();
   });
 
+  it("uses explicit per-step workflow models for one-click generation", async () => {
+    const storageDir = makeStorageDir();
+    const presetsDir = makePresetsDir();
+    mkdirSync(join(presetsDir, "module01"), { recursive: true });
+    writeFileSync(join(presetsDir, "module01", "workflow.json"), JSON.stringify({
+      directionImageModel: "deleted-global-image-model",
+      videoModel: "deleted-global-video-model",
+      directionWalkImageModel: "local/gpt-image-2",
+      directionIdleImageModel: "local/gpt-image-2",
+      walkVideoModel: "apimart/seedance-2.0",
+      finalDirectionWalkPrompt: "walk prompt",
+      finalDirectionIdlePrompt: "idle prompt",
+      finalVideoPrompt: "walk video prompt"
+    }));
+    const app = createApp({
+      ffmpegPath: "ffmpeg",
+      port: 8787,
+      presetsDir,
+      storageDir,
+      oneClickCharacterJobRunner: async () => undefined
+    });
+    await app.ready();
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/module01/one-click-character-jobs",
+      headers: {
+        "x-ai-provider-id": "apimart",
+        "x-ai-provider-api-key": "test-apimart-key"
+      },
+      payload: makeStartPayload({
+        firstFrame: {
+          model: "local/gpt-image-2",
+          prompt: "base template prompt",
+          targetSize: 1024,
+          keyColor: "#00ff00",
+          style: "cel-anime"
+        }
+      })
+    });
+
+    expect(response.statusCode).toBe(202);
+    expect(response.json().job).toMatchObject({
+      characterId: "hero",
+      status: "running"
+    });
+
+    await app.close();
+  });
+
   it("refuses attack generation when the saved attack midframe prompt is empty", async () => {
     const storageDir = makeStorageDir();
     const presetsDir = makePresetsDir();
