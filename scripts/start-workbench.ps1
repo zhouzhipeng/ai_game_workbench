@@ -244,6 +244,7 @@ $disableTunnel = $NoTunnel -or $NoNgrok
 $cloudflaredExe = if ($disableTunnel) { $null } else { Resolve-CloudflaredExe $CloudflaredPath }
 $npmCmd = "npm.cmd"
 $env:STORAGE_DIR = $serverStorageDir
+$env:PORT = "$ServerPort"
 
 if ($Check) {
   [pscustomobject]@{
@@ -290,7 +291,7 @@ if (-not $disableTunnel) {
 
 if (-not (Test-TcpPort $WebPort)) {
   Write-StartupProgress 82 "Starting web server..."
-  Start-WorkbenchProcess "web" $npmCmd @("run", "dev:web") | Out-Null
+  Start-WorkbenchProcess "web" $npmCmd @("run", "dev", "-w", "apps/web", "--", "--port", "$WebPort") | Out-Null
   Wait-Until { Test-TcpPort $WebPort } "web"
   Write-StartupProgress 94 "Web server is ready."
 } else {

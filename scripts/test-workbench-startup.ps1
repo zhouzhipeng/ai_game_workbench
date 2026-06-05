@@ -70,6 +70,15 @@ $webStartIndex = $startScript.IndexOf('Start-WorkbenchProcess "web"')
 if ($tunnelWaitIndex -lt 0 -or $webStartIndex -lt 0 -or $webStartIndex -lt $tunnelWaitIndex) {
   Write-Error "Expected web startup to happen only after cloudflared tunnel readiness is checked."
 }
+$serverPortEnvIndex = $startScript.IndexOf('$env:PORT = "$ServerPort"')
+$serverStartIndex = $startScript.IndexOf('Start-WorkbenchProcess "server"')
+if ($serverPortEnvIndex -lt 0 -or $serverStartIndex -lt 0 -or $serverStartIndex -lt $serverPortEnvIndex) {
+  Write-Error "Expected start-workbench.ps1 to pass -ServerPort into the API server PORT environment before server startup."
+}
+$webPortArgIndex = $startScript.IndexOf('Start-WorkbenchProcess "web" $npmCmd @("run", "dev", "-w", "apps/web", "--", "--port", "$WebPort")')
+if ($webPortArgIndex -lt 0) {
+  Write-Error "Expected start-workbench.ps1 to pass -WebPort into Vite via --port."
+}
 Write-Host "PASS startup script reports progress, delays web until tunnel readiness, and keeps a control terminal"
 
 try {
