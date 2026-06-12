@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
@@ -346,11 +347,30 @@ function buildGDevelopExtension(input: {
         objectsFolderStructure: buildGDevelopSpriteObjectFolderStructure(),
         objectsGroups: [],
         layers: [buildDefaultGDevelopLayer()],
-        instances: [],
+        instances: [buildGDevelopSpriteInitialInstance(input.exportSize)],
         editionSettings: {},
         variants: []
       }
     ]
+  };
+}
+
+function buildGDevelopSpriteInitialInstance(exportSize: number) {
+  return {
+    angle: 0,
+    customSize: true,
+    height: exportSize,
+    keepRatio: true,
+    layer: "",
+    name: "Sprite",
+    persistentUuid: randomUUID(),
+    width: exportSize,
+    x: 0,
+    y: 0,
+    zOrder: 1,
+    numberProperties: [],
+    stringProperties: [],
+    initialVariables: []
   };
 }
 
