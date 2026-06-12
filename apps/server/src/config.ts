@@ -1,6 +1,5 @@
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import ffmpegStaticPath from "ffmpeg-static";
 import type { LocalCodexImageGenerator } from "./providers/localCodex";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -36,7 +35,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
 }
 
 export function resolveDefaultFfmpegPath(): string {
-  return ffmpegStaticPath ?? "ffmpeg";
+  return "ffmpeg";
 }
 
 export function resolveDefaultModule01CharacterExportDir(): string {

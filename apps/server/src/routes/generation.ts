@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, extname, join, resolve, sep } from "node:path";
 import type { FastifyInstance } from "fastify";
 import {
   type BuildImageGenerationPayloadInput,
@@ -320,6 +320,22 @@ export function registerGenerationRoutes(app: FastifyInstance, config: AppConfig
       return reply.code(400).send({ error: "Seedance 1.0 Pro Quality is only supported for walk, run, and jump videos" });
     }
     const apiKey = resolvedModel.apiKey ?? "";
+    if (resolvedModel.provider.kind === "apimart") {
+      const client = new ApimartVideoClient({ apiKey, baseUrl: resolvedModel.baseUrl ?? "" });
+      try {
+        const apimartInput = await uploadLocalVideoImagesForApimart(input, {
+          apiKey,
+          baseUrl: resolvedModel.baseUrl ?? "",
+          storageDir: config.storageDir
+        });
+        return await client.createVideo(buildApimartVideoGenerationPayload({
+          ...apimartInput,
+          model: resolvedModel.model.upstreamModel
+        }));
+      } catch (error: unknown) {
+        return sendGenerationError(error, reply);
+      }
+    }
     const urlError = validatePublicHttpsImageUrl(input.firstFrameUrl);
     if (urlError) {
       return reply.code(400).send({ error: urlError });
@@ -340,17 +356,6 @@ export function registerGenerationRoutes(app: FastifyInstance, config: AppConfig
       const referenceAccessError = await validatePublicImageUrlContent(imageUrl);
       if (referenceAccessError) {
         return reply.code(400).send({ error: `参考图无法访问：${referenceAccessError}` });
-      }
-    }
-    if (resolvedModel.provider.kind === "apimart") {
-      const client = new ApimartVideoClient({ apiKey, baseUrl: resolvedModel.baseUrl ?? "" });
-      try {
-        return await client.createVideo(buildApimartVideoGenerationPayload({
-          ...input,
-          model: resolvedModel.model.upstreamModel
-        }));
-      } catch (error: unknown) {
-        return sendGenerationError(error, reply);
       }
     }
     const client = new OpenRouterClient({ apiKey, baseUrl: resolvedModel.baseUrl });
@@ -864,6 +869,149 @@ async function validatePublicImageUrlContent(value: string): Promise<string | un
 
   await response.body?.cancel();
   return undefined;
+}
+
+async function uploadLocalVideoImagesForApimart(
+  input: Parameters<typeof buildVideoGenerationPayload>[0],
+  options: { apiKey: string; baseUrl: string; storageDir: string }
+): Promise<Parameters<typeof buildVideoGenerationPayload>[0]> {
+  return {
+    ...input,
+    firstFrameUrl: await uploadLocalImageForApimart(input.firstFrameUrl, options),
+    lastFrameUrl: input.lastFrameUrl
+      ? await uploadLocalImageForApimart(input.lastFrameUrl, options)
+      : undefined,
+    inputReferenceUrls: input.inputReferenceUrls
+      ? await Promise.all(input.inputReferenceUrls.map((url) => uploadLocalImageForApimart(url, options)))
+      : undefined
+  };
+}
+
+async function uploadLocalImageForApimart(
+  imageUrl: string,
+  options: { apiKey: string; baseUrl: string; storageDir: string }
+): Promise<string> {
+  const trimmed = imageUrl.trim();
+  if (!trimmed || trimmed.startsWith("asset://")) {
+    return trimmed;
+  }
+  const localPath = resolveLocalWorkbenchAssetPath(trimmed, options.storageDir);
+  if (!localPath) {
+    const error = validatePublicHttpsImageUrl(trimmed);
+    if (error) {
+      throw new Error(`APIMart video images must be HTTPS, asset://, or local workbench assets. ${error}`);
+    }
+    return trimmed;
+  }
+  if (!existsSync(localPath)) {
+    throw new Error(`APIMart video input image was not found: ${localPath}`);
+  }
+
+  const form = new FormData();
+  const buffer = await readFile(localPath);
+  form.append(
+    "file",
+    new Blob([buffer], { type: contentTypeFromFileName(localPath) }),
+    basename(localPath)
+  );
+
+  const response = await fetch(`${options.baseUrl.replace(/\/+$/, "")}/uploads/images`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${options.apiKey}`
+    },
+    body: form
+  });
+  const responseText = await response.text();
+  const parsed = parseJsonBody(responseText);
+  if (!response.ok) {
+    throw new Error(extractProviderErrorMessage(parsed) ?? `APIMart image upload failed (${response.status}): ${responseText.slice(0, 300)}`);
+  }
+  const uploadedUrl = findStringValue(parsed, ["url"]);
+  if (!uploadedUrl) {
+    throw new Error(`APIMart image upload did not return a URL: ${responseText.slice(0, 300)}`);
+  }
+  return uploadedUrl;
+}
+
+function parseJsonBody(body: string): unknown {
+  if (!body) {
+    return null;
+  }
+  try {
+    return JSON.parse(body);
+  } catch {
+    return body;
+  }
+}
+
+function extractProviderErrorMessage(value: unknown): string | undefined {
+  const direct = findStringValue(value, ["message", "error"]);
+  if (direct) {
+    return direct;
+  }
+  if (value && typeof value === "object") {
+    return extractProviderErrorMessage((value as Record<string, unknown>).error);
+  }
+  return undefined;
+}
+
+function resolveLocalWorkbenchAssetPath(value: string, storageDir: string): string | undefined {
+  let pathname: string;
+  try {
+    const parsed = value.startsWith("/")
+      ? new URL(value, "http://workbench.local")
+      : new URL(value);
+    if (!value.startsWith("/") && (parsed.protocol === "http:" || parsed.protocol === "https:" || parsed.protocol === "asset:")) {
+      return undefined;
+    }
+    pathname = parsed.pathname;
+  } catch {
+    pathname = value;
+  }
+
+  if (!pathname.startsWith("/")) {
+    return undefined;
+  }
+  const segments = pathname
+    .split("/")
+    .filter(Boolean)
+    .map((segment) => decodeURIComponent(segment));
+  const [root, characterId, ...rest] = segments;
+  if (root === "characters" && characterId) {
+    return resolveCharacterPath(storageDir, characterId, ...rest);
+  }
+  if (root === "assets") {
+    return resolveStorageChildPath(storageDir, "assets", segments.slice(1));
+  }
+  if (root === "jobs") {
+    return resolveStorageChildPath(storageDir, "jobs", segments.slice(1));
+  }
+  return undefined;
+}
+
+function resolveStorageChildPath(storageDir: string, childRoot: string, segments: string[]): string {
+  const root = resolve(storageDir, childRoot);
+  const target = resolve(root, ...segments);
+  const normalizedRoot = root.endsWith(sep) ? root : `${root}${sep}`;
+  if (target !== root && !target.startsWith(normalizedRoot)) {
+    throw new Error("Local workbench asset path is outside storage.");
+  }
+  return target;
+}
+
+function contentTypeFromFileName(filePath: string): string {
+  switch (extname(filePath).toLowerCase()) {
+    case ".jpg":
+    case ".jpeg":
+      return "image/jpeg";
+    case ".webp":
+      return "image/webp";
+    case ".gif":
+      return "image/gif";
+    default:
+      return "image/png";
+  }
 }
 
 async function readResponsePreview(response: Response): Promise<string> {

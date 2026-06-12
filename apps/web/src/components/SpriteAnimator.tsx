@@ -1561,7 +1561,7 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
       setVideoStatus("请先生成步行 2x2，或直接上传 2x2 步行图。");
       return;
     }
-    if (!isPublicHttpsUrl(firstFrameUrl)) {
+    if (!isVideoImageUrlAccepted(walkVideoModel, firstFrameUrl)) {
       setVideoStatus("视频模型需要公网 HTTPS 步行图片 URL。请重新生成步行图片或重新上传。");
       return;
     }
@@ -2079,7 +2079,7 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
       updateAdvancedAction(actionKind, { status: `请先准备${label}的 2x2 输入图。` });
       return;
     }
-    if (!isPublicHttpsUrl(firstFrameUrl)) {
+    if (!isVideoImageUrlAccepted(requestVideoSettings.model, firstFrameUrl)) {
       updateAdvancedAction(actionKind, { status: `${label}视频模型需要公网 HTTPS 输入图 URL，请重新生成或上传。` });
       return;
     }
@@ -2093,7 +2093,7 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
       return;
     }
     const middleFrameUrl = state.middleFramePreview?.publicUrl ?? state.middleFramePreview?.url ?? "";
-    if (actionKind === "attack-1" && !isPublicHttpsUrl(middleFrameUrl)) {
+    if (actionKind === "attack-1" && !isVideoImageUrlAccepted(requestVideoSettings.model, middleFrameUrl)) {
       updateAdvancedAction(actionKind, { status: "攻击中间帧需要公网 HTTPS 图片 URL，请重新生成。" });
       return;
     }
@@ -5408,6 +5408,33 @@ function isPublicHttpsUrl(value: string): boolean {
     const parts = host.split(".").map((part) => Number(part));
     const [first, second] = parts;
     return !(parts.length === 4 && first === 172 && second !== undefined && second >= 16 && second <= 31);
+  } catch {
+    return false;
+  }
+}
+
+function isVideoImageUrlAccepted(model: string, value: string): boolean {
+  if (isPublicHttpsUrl(value)) {
+    return true;
+  }
+  return model.startsWith("apimart/") && isLocalWorkbenchAssetUrl(value);
+}
+
+function isLocalWorkbenchAssetUrl(value: string): boolean {
+  const localPrefixes = [
+    "/assets/",
+    "/characters/",
+    "/jobs/",
+    "/style-references/",
+    "/direction-references/"
+  ];
+  if (localPrefixes.some((prefix) => value.startsWith(prefix))) {
+    return true;
+  }
+  try {
+    const url = new URL(value);
+    return url.protocol === "ai-game-workbench:" &&
+      localPrefixes.some((prefix) => url.pathname.startsWith(prefix));
   } catch {
     return false;
   }
