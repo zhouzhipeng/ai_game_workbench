@@ -342,31 +342,13 @@ function buildGDevelopExtension(input: {
         propertiesFolderStructure: {
           folderName: "__ROOT"
         },
-        objects: [],
-        objectsFolderStructure: {
-          folderName: "__ROOT"
-        },
+        objects: [buildGDevelopSpriteObject(input.animations)],
+        objectsFolderStructure: buildGDevelopSpriteObjectFolderStructure(),
         objectsGroups: [],
         layers: [buildDefaultGDevelopLayer()],
         instances: [],
         editionSettings: {},
-        variants: [
-          {
-            areaMaxX: input.exportSize,
-            areaMaxY: input.exportSize,
-            areaMaxZ: 64,
-            areaMinX: 0,
-            areaMinY: 0,
-            areaMinZ: 0,
-            name: "",
-            objects: [buildGDevelopSpriteObject(input.animations)],
-            objectsFolderStructure: buildGDevelopSpriteObjectFolderStructure(),
-            objectsGroups: [],
-            layers: [buildDefaultGDevelopLayer()],
-            instances: [],
-            editionSettings: {}
-          }
-        ]
+        variants: []
       }
     ]
   };
