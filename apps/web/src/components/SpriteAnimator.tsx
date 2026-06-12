@@ -22,7 +22,7 @@ import type { ProviderModelCatalog, SavedAnimationKeys } from "@ai-game-workbenc
 import {
   createOneClickCharacterJob,
   createAdvancedActionMidframeGeneration,
-  createGodotExport,
+  createGDevelopExtensionExport,
   createDirectionTemplateGeneration,
   createCharacter,
   deleteCharacter,
@@ -57,7 +57,8 @@ import type {
   Module01ReferenceImageKind,
   ProcessFourDirectionResult,
   ProcessedFrame,
-  GodotExportResult,
+  GDevelopExtensionImportResult,
+  GDevelopExtensionExportResult,
   OneClickCharacterJob
 } from "../api/client";
 import {
@@ -69,11 +70,25 @@ import {
 import { Module01Settings } from "./module01/Module01Settings";
 import { MODULE01_NAV_ITEMS, MODULE01_PAGE_LABELS, type Module01Page } from "./module01/module01Model";
 
+declare global {
+  interface Window {
+    gdevelopWorkbench?: {
+      importGDevelopExtension: (payload: {
+        characterId: string;
+        extensionName: string;
+        extensionVersion: string;
+        extension: Record<string, unknown>;
+        assetFiles: GDevelopExtensionExportResult["assetFiles"];
+      }) => Promise<GDevelopExtensionImportResult>;
+    };
+  }
+}
+
 const MODULE01_NAV_GROUPS = [
   { title: "流程", pageIds: ["one-click-character"] },
   { title: "基础角色生成", pageIds: ["base-template", "walk", "idle"] },
   { title: "进阶角色生成", pageIds: ["run", "jump", "attack-1"] },
-  { title: "预览与导出", pageIds: ["character-preview", "godot-export"] },
+  { title: "预览与导出", pageIds: ["character-preview", "gdevelop-extension"] },
   { title: "配置", pageIds: ["module-settings"] }
 ] as const satisfies readonly { title: string; pageIds: readonly Module01Page[] }[];
 
@@ -378,8 +393,8 @@ const VIDEO_MODELS = [
 const DEFAULT_VIDEO_MODEL = "apimart/seedance-2.0";
 const APIMART_SEEDANCE_1_PRO_QUALITY_MODEL = "apimart/seedance-1.0-pro-quality";
 const FPS_MAX = 300;
-const GODOT_EXPORT_SIZE_OPTIONS = [256, 384, 512, 1024] as const;
-type GodotExportSize = (typeof GODOT_EXPORT_SIZE_OPTIONS)[number];
+const GDEVELOP_EXTENSION_EXPORT_SIZE_OPTIONS = [256, 384, 512, 1024] as const;
+type GDevelopExtensionExportSize = (typeof GDEVELOP_EXTENSION_EXPORT_SIZE_OPTIONS)[number];
 
 const PREVIEW_DIRECTION_ORDER = ["down", "up", "left", "right"] as const satisfies readonly PreviewDirection[];
 const PREVIEW_DIRECTION_LABELS: Record<PreviewDirection, string> = {
@@ -539,10 +554,11 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
   const [videoStatus, setVideoStatus] = useState("等待步行图片，或直接上传 2x2 步行图。");
   const [videoStatusDetails, setVideoStatusDetails] = useState("");
   const [frameStatus, setFrameStatus] = useState("等待视频下载完成。");
-  const [godotExportSize, setGodotExportSize] = useState<GodotExportSize>(512);
-  const [godotExportResult, setGodotExportResult] = useState<GodotExportResult | null>(null);
-  const [godotExportStatus, setGodotExportStatus] = useState("选择导出尺寸后生成 Godot 导出包。");
-  const [isExportingGodot, setIsExportingGodot] = useState(false);
+  const [gdevelopExtensionExportSize, setGDevelopExtensionExportSize] = useState<GDevelopExtensionExportSize>(512);
+  const [gdevelopExtensionExportResult, setGDevelopExtensionExportResult] = useState<GDevelopExtensionExportResult | null>(null);
+  const [gdevelopExtensionExportStatus, setGDevelopExtensionExportStatus] = useState("Choose a size, then generate a GDevelop extension.");
+  const [isExportingGDevelopExtension, setIsExportingGDevelopExtension] = useState(false);
+  const [isImportingGDevelopExtension, setIsImportingGDevelopExtension] = useState(false);
   const pollTimeoutRef = useRef<number | undefined>(undefined);
   const oneClickPollTimeoutRef = useRef<number | undefined>(undefined);
   const assetHydrationVersionRef = useRef(0);
@@ -1040,8 +1056,8 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
       "attack-1": buildInitialAdvancedActionState("等待待机处理结果，可准备攻击起始帧。"),
       jump: buildInitialAdvancedActionState("等待待机处理结果，可准备跳跃起始帧。")
     });
-    setGodotExportResult(null);
-    setGodotExportStatus("选择导出尺寸后生成 Godot 导出包。");
+    setGDevelopExtensionExportResult(null);
+    setGDevelopExtensionExportStatus("Choose a size, then generate a GDevelop extension.");
     setActiveFrameIndex(0);
     setIsPlayingFrames(false);
   };
@@ -1160,14 +1176,14 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
       "attack-1": buildInitialAdvancedActionState("等待待机处理结果，可准备攻击起始帧。"),
       jump: buildInitialAdvancedActionState("等待待机处理结果，可准备跳跃起始帧。")
     });
-    setGodotExportResult(null);
+    setGDevelopExtensionExportResult(null);
     setActiveFrameIndex(0);
     setIsPlayingFrames(false);
     setFirstFrameStatus(characterId ? "等待角色参考图或直接生成基准模板。" : "请先创建或选择角色文件夹。");
     setDirectionTemplateStatus(characterId ? "等待角色基准模板。先生成步行 2x2，再基于步行图生成待机 2x2。" : "请先创建或选择角色文件夹。");
     setVideoStatus(characterId ? "等待步行图片，或直接上传 2x2 步行图。" : "请先创建或选择角色文件夹。");
     setFrameStatus(characterId ? "等待视频下载完成。" : "请先创建或选择角色文件夹。");
-    setGodotExportStatus(characterId ? "选择导出尺寸后生成 Godot 导出包。" : "请先创建或选择角色文件夹。");
+    setGDevelopExtensionExportStatus(characterId ? "Choose a size, then generate a GDevelop extension." : "Create or select a character folder first.");
   };
 
   const handleDeleteCharacter = async (character: CharacterFolder) => {
@@ -2396,25 +2412,55 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
     }
   };
 
-  const handleCreateGodotExport = async () => {
-    const characterId = requireCharacter(setGodotExportStatus);
+  const handleCreateGDevelopExtensionExport = async () => {
+    const characterId = requireCharacter(setGDevelopExtensionExportStatus);
     if (!characterId) {
       return;
     }
-    setIsExportingGodot(true);
-    setGodotExportResult(null);
-    setGodotExportStatus(`正在生成 ${godotExportSize}x${godotExportSize} Godot 导出包...`);
+    setIsExportingGDevelopExtension(true);
+    setGDevelopExtensionExportResult(null);
+    setGDevelopExtensionExportStatus(`Generating ${gdevelopExtensionExportSize}x${gdevelopExtensionExportSize} GDevelop extension...`);
     try {
-      const result = await createGodotExport({
+      const result = await createGDevelopExtensionExport({
         characterId,
-        exportSize: godotExportSize
+        exportSize: gdevelopExtensionExportSize
       });
-      setGodotExportResult(result);
-      setGodotExportStatus(`Godot 导出完成：${result.exportedActions.join(" / ")}，共 ${result.animationCount} 组动画。`);
+      setGDevelopExtensionExportResult(result);
+      setGDevelopExtensionExportStatus(`GDevelop extension ready: ${result.exportedActions.join(" / ")}, ${result.animationCount} animations.`);
     } catch (error: unknown) {
-      setGodotExportStatus(`Godot 导出失败：${getErrorMessage(error)}`);
+      setGDevelopExtensionExportStatus(`GDevelop extension export failed: ${getErrorMessage(error)}`);
     } finally {
-      setIsExportingGodot(false);
+      setIsExportingGDevelopExtension(false);
+    }
+  };
+
+  const handleImportGDevelopExtension = async () => {
+    if (!gdevelopExtensionExportResult) {
+      setGDevelopExtensionExportStatus("Generate the GDevelop extension before importing it.");
+      return;
+    }
+
+    const bridge = window.gdevelopWorkbench;
+    if (!bridge) {
+      setGDevelopExtensionExportStatus("Direct import is only available from GDevelop desktop Working Desk.");
+      return;
+    }
+
+    setIsImportingGDevelopExtension(true);
+    setGDevelopExtensionExportStatus(`Importing ${gdevelopExtensionExportResult.extensionName} into the current GDevelop project...`);
+    try {
+      const result = await bridge.importGDevelopExtension({
+        characterId: gdevelopExtensionExportResult.characterId,
+        extensionName: gdevelopExtensionExportResult.extensionName,
+        extensionVersion: gdevelopExtensionExportResult.extensionVersion,
+        extension: gdevelopExtensionExportResult.extension,
+        assetFiles: gdevelopExtensionExportResult.assetFiles
+      });
+      setGDevelopExtensionExportStatus(`${result.replaced ? "Updated" : "Imported"} ${result.extensionName}${result.extensionVersion ? ` v${result.extensionVersion}` : ""} with ${result.assetCount} image resources.`);
+    } catch (error: unknown) {
+      setGDevelopExtensionExportStatus(`GDevelop project import failed: ${getErrorMessage(error)}`);
+    } finally {
+      setIsImportingGDevelopExtension(false);
     }
   };
 
@@ -2927,15 +2973,15 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
                   content: <EmptyPanel label="角色预览默认参数将在预览页生效。" />
                 },
                 {
-                  group: "godot-export",
+                  group: "gdevelop-extension",
                   onSave: handleSaveVideoDraft,
                   status: videoStatus,
                   content: (
                     <div className="form-grid">
                       <label className="field">
                         导出尺寸
-                        <select aria-label="设置 Godot 导出尺寸" value={godotExportSize} onChange={(event) => setGodotExportSize(normalizeGodotExportSize(Number(event.target.value)))}>
-                          {GODOT_EXPORT_SIZE_OPTIONS.map((size) => (
+                        <select aria-label="Set GDevelop extension frame size" value={gdevelopExtensionExportSize} onChange={(event) => setGDevelopExtensionExportSize(normalizeGDevelopExtensionExportSize(Number(event.target.value)))}>
+                          {GDEVELOP_EXTENSION_EXPORT_SIZE_OPTIONS.map((size) => (
                             <option key={size} value={size}>{size} x {size}</option>
                           ))}
                         </select>
@@ -3353,15 +3399,17 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
             />
           ) : null}
 
-          {activePage === "godot-export" ? (
-            <GodotExportStage
+          {activePage === "gdevelop-extension" ? (
+            <GDevelopExtensionExportStage
               activeCharacterId={activeCharacterId}
-              exportSize={godotExportSize}
-              status={godotExportStatus}
-              result={godotExportResult}
-              isExporting={isExportingGodot}
-              onChangeExportSize={setGodotExportSize}
-              onExport={handleCreateGodotExport}
+              exportSize={gdevelopExtensionExportSize}
+              status={gdevelopExtensionExportStatus}
+              result={gdevelopExtensionExportResult}
+              isExporting={isExportingGDevelopExtension}
+              isImporting={isImportingGDevelopExtension}
+              onChangeExportSize={setGDevelopExtensionExportSize}
+              onExport={handleCreateGDevelopExtensionExport}
+              onImport={handleImportGDevelopExtension}
             />
           ) : null}
         </div>
@@ -3377,7 +3425,7 @@ function Module01NavIcon({ page }: { page: Module01Page }) {
   if (page === "character-preview") {
     return <Gamepad2 size={18} />;
   }
-  if (page === "godot-export") {
+  if (page === "gdevelop-extension") {
     return <Download size={18} />;
   }
   if (page === "module-settings") {
@@ -3386,39 +3434,43 @@ function Module01NavIcon({ page }: { page: Module01Page }) {
   return null;
 }
 
-function GodotExportStage({
+function GDevelopExtensionExportStage({
   activeCharacterId,
   exportSize,
   status,
   result,
   isExporting,
+  isImporting,
   onChangeExportSize,
-  onExport
+  onExport,
+  onImport
 }: {
   activeCharacterId: string;
-  exportSize: GodotExportSize;
+  exportSize: GDevelopExtensionExportSize;
   status: string;
-  result: GodotExportResult | null;
+  result: GDevelopExtensionExportResult | null;
   isExporting: boolean;
-  onChangeExportSize: (size: GodotExportSize) => void;
+  isImporting: boolean;
+  onChangeExportSize: (size: GDevelopExtensionExportSize) => void;
   onExport: () => void;
+  onImport: () => void;
 }) {
   return (
-    <section className="workflow-stage godot-export-stage">
+    <section className="workflow-stage gdevelop-extension-export-stage">
       <div className="stage-heading">
-        <h2>导出</h2>
+        <h2>Export</h2>
         <span>{status}</span>
       </div>
-      <div className="export-grid godot-export-grid">
+      <div className="export-grid gdevelop-extension-export-grid">
         <div className="export-actions">
           <label className="field">
-            Godot 导出尺寸
+            GDevelop frame size
             <select
-              aria-label="Godot 导出尺寸"
+              aria-label="GDevelop extension frame size"
               value={exportSize}
-              onChange={(event) => onChangeExportSize(normalizeGodotExportSize(Number(event.target.value)))}
+              onChange={(event) => onChangeExportSize(normalizeGDevelopExtensionExportSize(Number(event.target.value)))}
             >
-              {GODOT_EXPORT_SIZE_OPTIONS.map((size) => (
+              {GDEVELOP_EXTENSION_EXPORT_SIZE_OPTIONS.map((size) => (
                 <option key={size} value={size}>{size}</option>
               ))}
             </select>
@@ -3429,21 +3481,32 @@ function GodotExportStage({
             disabled={!activeCharacterId || isExporting}
             onClick={() => onExport()}
           >
-            <Download size={18} /> {isExporting ? "导出中..." : "生成 Godot 导出包"}
+            <Download size={18} /> {isExporting ? "Exporting..." : "Generate GDevelop extension"}
+          </button>
+          <button
+            className="tool-button"
+            type="button"
+            disabled={!result || isExporting || isImporting}
+            onClick={() => onImport()}
+          >
+            <Upload size={18} /> {isImporting ? "Importing..." : "Import to current project"}
           </button>
           <p className="prompt-hint">
-            当前角色：{activeCharacterId || "未选择角色"}。导出会读取该角色已经处理好的待机、步行、跑步、攻击 1、跳跃透明帧。
+            Current character: {activeCharacterId || "none"}. The extension includes every generated idle, walk, run, attack1, and jump transparent frame.
           </p>
         </div>
-        <div className="export-actions godot-export-result">
-          <strong>导出结果</strong>
-          <span>尺寸：{result ? `${result.exportSize}x${result.exportSize}` : `${exportSize}x${exportSize}`}</span>
-          <span>动作：{result?.exportedActions.length ? result.exportedActions.join(" / ") : "等待导出"}</span>
-          <span>动画组：{result?.animationCount ?? 0}</span>
-          <span>导出目录：{result?.exportRootPath ?? "等待导出"}</span>
-          <DownloadLink href={result?.zipUrl} label="下载 Godot 导出 ZIP" />
-          <DownloadLink href={result?.manifestUrl} label="下载 animations.json" />
-          <DownloadLink href={result?.importScriptUrl} label="下载 import_to_godot.gd" />
+        <div className="export-actions gdevelop-extension-export-result">
+          <strong>Export result</strong>
+          <span>Size: {result ? `${result.exportSize}x${result.exportSize}` : `${exportSize}x${exportSize}`}</span>
+          <span>Extension: {result ? `${result.extensionName} v${result.extensionVersion}` : "Waiting for export"}</span>
+          <span>Object type: {result?.objectType ?? "Waiting for export"}</span>
+          <span>Actions: {result?.exportedActions.length ? result.exportedActions.join(" / ") : "Waiting for export"}</span>
+          <span>Animations: {result?.animationCount ?? 0}</span>
+          <span>Images: {result?.assetCount ?? 0}</span>
+          <span>Export folder: {result?.exportRootPath ?? "Waiting for export"}</span>
+          <DownloadLink href={result?.extensionUrl} label="Download GDevelop extension JSON" />
+          <DownloadLink href={result?.packageUrl} label="Download extension package ZIP" />
+          <DownloadLink href={result?.manifestUrl} label="Download export manifest" />
         </div>
       </div>
     </section>
@@ -4832,8 +4895,8 @@ function normalizeVideoDuration(
       : getDefaultVideoDuration(modelOrModels, model);
 }
 
-function normalizeGodotExportSize(size: number): GodotExportSize {
-  return GODOT_EXPORT_SIZE_OPTIONS.includes(size as GodotExportSize) ? size as GodotExportSize : 512;
+function normalizeGDevelopExtensionExportSize(size: number): GDevelopExtensionExportSize {
+  return GDEVELOP_EXTENSION_EXPORT_SIZE_OPTIONS.includes(size as GDevelopExtensionExportSize) ? size as GDevelopExtensionExportSize : 512;
 }
 
 function getVideoResolutionOptions(model: string): readonly string[];

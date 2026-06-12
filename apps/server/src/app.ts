@@ -7,7 +7,7 @@ import { registerGenerationRoutes } from "./routes/generation";
 import { registerProcessingRoutes } from "./routes/processing";
 import { registerCharacterRoutes } from "./routes/characters";
 import { registerWorkflowConfigRoutes } from "./routes/workflowConfig";
-import { registerGodotExportRoutes } from "./routes/godotExport";
+import { registerGDevelopExtensionExportRoutes } from "./routes/gdevelopExtensionExport";
 import { registerModule02Routes } from "./routes/module02";
 import { registerOneClickCharacterRoutes, type OneClickCharacterJobRunner } from "./routes/oneClickCharacterJobs";
 import { registerProviderSettingsRoutes } from "./routes/providerSettings";
@@ -88,7 +88,7 @@ export function createApp(options: CreateAppOptions) {
     ffmpegPath,
     storageDir: options.storageDir
   });
-  registerGodotExportRoutes(app, {
+  registerGDevelopExtensionExportRoutes(app, {
     storageDir: options.storageDir,
     module01CharacterExportDir
   });

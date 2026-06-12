@@ -7,7 +7,7 @@ export type Module01Page =
   | "attack-1"
   | "jump"
   | "character-preview"
-  | "godot-export"
+  | "gdevelop-extension"
   | "module-settings";
 
 export type Module01SettingsGroup =
@@ -18,7 +18,7 @@ export type Module01SettingsGroup =
   | "attack-1"
   | "jump"
   | "character-preview"
-  | "godot-export";
+  | "gdevelop-extension";
 
 export interface Module01NavItem {
   id: Module01Page;
@@ -35,7 +35,7 @@ export const MODULE01_NAV_ITEMS = [
   { id: "attack-1", label: "攻击 1", shortLabel: "攻击" },
   { id: "jump", label: "跳跃", shortLabel: "跳跃" },
   { id: "character-preview", label: "角色预览", shortLabel: "预览" },
-  { id: "godot-export", label: "导出", shortLabel: "导出" },
+  { id: "gdevelop-extension", label: "Export", shortLabel: "Export" },
   { id: "module-settings", label: "模块设置", shortLabel: "设置" }
 ] as const satisfies readonly Module01NavItem[];
 
@@ -57,5 +57,5 @@ export const MODULE01_SETTINGS_GROUPS = [
   { id: "attack-1", label: "攻击 1 设置", saveLabel: "保存攻击 1 设置" },
   { id: "jump", label: "跳跃设置", saveLabel: "保存跳跃设置" },
   { id: "character-preview", label: "角色预览设置", saveLabel: "保存角色预览设置" },
-  { id: "godot-export", label: "导出设置", saveLabel: "保存导出设置" }
+  { id: "gdevelop-extension", label: "GDevelop extension export", saveLabel: "Save export settings" }
 ] as const satisfies readonly Module01SettingsGroupItem[];

@@ -318,21 +318,44 @@ export interface ProcessIdleFourDirectionResult {
   spriteSheetUrl?: string;
 }
 
-export interface CreateGodotExportInput {
+export interface CreateGDevelopExtensionExportInput {
   characterId: string;
   exportSize: 256 | 384 | 512 | 1024;
 }
 
-export interface GodotExportResult {
+export interface GDevelopExtensionAssetFile {
+  resourceName: string;
+  relativePath: string;
+  sourcePath: string;
+  url: string;
+}
+
+export interface GDevelopExtensionImportPayload {
   characterId: string;
+  extensionName: string;
+  extensionVersion: string;
+  extension: Record<string, unknown>;
+  assetFiles: GDevelopExtensionAssetFile[];
+}
+
+export interface GDevelopExtensionImportResult {
+  extensionName: string;
+  extensionVersion?: string;
+  assetCount: number;
+  replaced: boolean;
+}
+
+export interface GDevelopExtensionExportResult extends GDevelopExtensionImportPayload {
   exportSize: 256 | 384 | 512 | 1024;
+  objectType: string;
   exportedActions: string[];
   animationCount: number;
+  assetCount: number;
   exportRootPath?: string;
   exportRootUrl: string;
+  extensionUrl: string;
   manifestUrl: string;
-  importScriptUrl: string;
-  zipUrl: string;
+  packageUrl: string;
 }
 
 export interface GenerationRequestOptions {
@@ -1033,8 +1056,8 @@ export async function processIdleFourDirection(input: ProcessIdleFourDirectionIn
   return response.json() as Promise<ProcessIdleFourDirectionResult>;
 }
 
-export async function createGodotExport(input: CreateGodotExportInput): Promise<GodotExportResult> {
-  const response = await fetch(`${API_BASE}/api/export/godot`, {
+export async function createGDevelopExtensionExport(input: CreateGDevelopExtensionExportInput): Promise<GDevelopExtensionExportResult> {
+  const response = await fetch(`${API_BASE}/api/export/gdevelop-extension`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
@@ -1042,9 +1065,9 @@ export async function createGodotExport(input: CreateGodotExportInput): Promise<
     body: JSON.stringify(input)
   });
   if (!response.ok) {
-    throw new Error(await readErrorMessage(response, `Godot 导出失败：${response.status}`));
+    throw new Error(await readErrorMessage(response, `GDevelop extension export failed: ${response.status}`));
   }
-  return response.json() as Promise<GodotExportResult>;
+  return response.json() as Promise<GDevelopExtensionExportResult>;
 }
 
 export async function prepareAdvancedActionStartFrame(input: PrepareAdvancedActionStartFrameInput): Promise<UploadedAsset> {
