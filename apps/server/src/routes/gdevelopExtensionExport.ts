@@ -161,8 +161,16 @@ async function exportGDevelopExtension(input: {
       await mkdir(outputDir, { recursive: true });
       for (const [index, sourceFrame] of sourceFrames.entries()) {
         const outputName = `${String(index).padStart(3, "0")}.png`;
-        const assetRelativePath = normalizeZipPath(join("ai-game-workbench", characterId, `size-${input.exportSize}`, actionDefinition.action, direction, outputName));
-        const zipAssetPath = normalizeZipPath(join("assets", actionDefinition.action, direction, outputName));
+        const assetRelativePath = normalizeZipPath(join(
+          "assets",
+          "ai-game-workbench",
+          characterId,
+          `size-${input.exportSize}`,
+          actionDefinition.action,
+          direction,
+          outputName
+        ));
+        const zipAssetPath = assetRelativePath;
         const outputPath = join(outputDir, outputName);
         const outputBuffer = await resizeFrameForGDevelop(sourceFrame.buffer, input.exportSize);
         await writeFile(outputPath, outputBuffer);
