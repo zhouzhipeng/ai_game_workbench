@@ -342,42 +342,66 @@ function buildGDevelopExtension(input: {
         propertiesFolderStructure: {
           folderName: "__ROOT"
         },
-        objects: [
-          {
-            adaptCollisionMaskAutomatically: true,
-            assetStoreId: "",
-            name: "Sprite",
-            type: "Sprite",
-            updateIfNotVisible: true,
-            variables: [],
-            effects: [],
-            behaviors: [],
-            animations: input.animations.map((animation) => ({
-              name: animation.name,
-              useMultipleDirections: false,
-              directions: [
-                {
-                  looping: animation.loop,
-                  timeBetweenFrames: 1 / animation.fps,
-                  sprites: animation.frames.map((frame) => buildSpriteFrame(frame.resourceName))
-                }
-              ]
-            }))
-          }
-        ],
+        objects: [],
         objectsFolderStructure: {
-          folderName: "__ROOT",
-          children: [
-            {
-              objectName: "Sprite"
-            }
-          ]
+          folderName: "__ROOT"
         },
         objectsGroups: [],
         layers: [buildDefaultGDevelopLayer()],
         instances: [],
         editionSettings: {},
-        variants: []
+        variants: [
+          {
+            areaMaxX: input.exportSize,
+            areaMaxY: input.exportSize,
+            areaMaxZ: 64,
+            areaMinX: 0,
+            areaMinY: 0,
+            areaMinZ: 0,
+            name: "",
+            objects: [buildGDevelopSpriteObject(input.animations)],
+            objectsFolderStructure: buildGDevelopSpriteObjectFolderStructure(),
+            objectsGroups: [],
+            layers: [buildDefaultGDevelopLayer()],
+            instances: [],
+            editionSettings: {}
+          }
+        ]
+      }
+    ]
+  };
+}
+
+function buildGDevelopSpriteObject(animations: GDevelopAnimationManifestEntry[]) {
+  return {
+    adaptCollisionMaskAutomatically: true,
+    assetStoreId: "",
+    name: "Sprite",
+    type: "Sprite",
+    updateIfNotVisible: true,
+    variables: [],
+    effects: [],
+    behaviors: [],
+    animations: animations.map((animation) => ({
+      name: animation.name,
+      useMultipleDirections: false,
+      directions: [
+        {
+          looping: animation.loop,
+          timeBetweenFrames: 1 / animation.fps,
+          sprites: animation.frames.map((frame) => buildSpriteFrame(frame.resourceName))
+        }
+      ]
+    }))
+  };
+}
+
+function buildGDevelopSpriteObjectFolderStructure() {
+  return {
+    folderName: "__ROOT",
+    children: [
+      {
+        objectName: "Sprite"
       }
     ]
   };
