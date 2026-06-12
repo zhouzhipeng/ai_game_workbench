@@ -321,6 +321,14 @@ export interface ProcessIdleFourDirectionResult {
 export interface CreateGDevelopExtensionExportInput {
   characterId: string;
   exportSize: 256 | 384 | 512 | 1024;
+  characterPreviewSettings?: {
+    idleFps?: number;
+    walkFps?: number;
+    runFps?: number;
+    attackFps?: number;
+    jumpFps?: number;
+    previewFps?: number;
+  };
 }
 
 export interface GDevelopExtensionAssetFile {

@@ -10,10 +10,12 @@ import {
   normalizeCharacterId,
   resolveCharacterPath,
 } from "../characterStorage";
+import { readModule01WorkflowConfig } from "./workflowConfig";
 
-type GDevelopExtensionExportRouteConfig = Pick<AppConfig, "storageDir" | "module01CharacterExportDir">;
+type GDevelopExtensionExportRouteConfig = Pick<AppConfig, "storageDir" | "presetsDir" | "module01CharacterExportDir">;
 type FourDirectionKey = "down" | "up" | "left" | "right";
 type CharacterActionKey = "idle" | "walk" | "run" | "attack1" | "jump";
+type ActionFpsByAction = Record<CharacterActionKey, number>;
 
 interface GDevelopExtensionAssetFile {
   resourceName: string;
@@ -50,6 +52,8 @@ interface ActionDefinition {
 }
 
 const GDEVELOP_EXTENSION_EXPORT_SIZES = [256, 384, 512, 1024] as const;
+const GDEVELOP_EXTENSION_MIN_FPS = 1;
+const GDEVELOP_EXTENSION_MAX_FPS = 300;
 const DIRECTION_KEYS: readonly FourDirectionKey[] = ["down", "up", "left", "right"];
 const ACTION_DEFINITIONS: readonly ActionDefinition[] = [
   {
@@ -93,6 +97,7 @@ export function registerGDevelopExtensionExportRoutes(
     const input = request.body as {
       characterId?: string;
       exportSize?: number;
+      characterPreviewSettings?: unknown;
     };
     const characterId = input.characterId?.trim() ?? "";
     const exportSize = input.exportSize ?? 512;
@@ -106,9 +111,11 @@ export function registerGDevelopExtensionExportRoutes(
       await ensureCharacterFolder(config.storageDir, characterId);
       const result = await exportGDevelopExtension({
         storageDir: config.storageDir,
+        presetsDir: config.presetsDir,
         exportDir: config.module01CharacterExportDir,
         characterId,
-        exportSize
+        exportSize,
+        characterPreviewSettings: input.characterPreviewSettings
       });
       return result;
     } catch (error: unknown) {
@@ -120,9 +127,11 @@ export function registerGDevelopExtensionExportRoutes(
 
 async function exportGDevelopExtension(input: {
   storageDir: string;
+  presetsDir: string;
   exportDir: string;
   characterId: string;
   exportSize: (typeof GDEVELOP_EXTENSION_EXPORT_SIZES)[number];
+  characterPreviewSettings?: unknown;
 }) {
   const characterId = normalizeCharacterId(input.characterId);
   const safeCharacterName = toSafeIdentifier(characterId, "Character");
@@ -148,6 +157,7 @@ async function exportGDevelopExtension(input: {
   };
   const exportedActions = new Set<CharacterActionKey>();
   const assetFiles: GDevelopExtensionAssetFile[] = [];
+  const actionFps = await resolveActionFps(input.presetsDir, input.characterPreviewSettings);
 
   for (const actionDefinition of ACTION_DEFINITIONS) {
     for (const direction of DIRECTION_KEYS) {
@@ -192,7 +202,7 @@ async function exportGDevelopExtension(input: {
         name: animationName,
         action: actionDefinition.action,
         direction,
-        fps: actionDefinition.fps,
+        fps: actionFps[actionDefinition.action],
         loop: actionDefinition.loop,
         frames: animationFrames
       });
@@ -353,6 +363,50 @@ function buildGDevelopExtension(input: {
       }
     ]
   };
+}
+
+async function resolveActionFps(presetsDir: string, requestPreviewSettings: unknown): Promise<ActionFpsByAction> {
+  const workflowConfig = await readModule01WorkflowConfig(presetsDir) ?? {};
+  const savedPreviewSettings = isPlainObject(workflowConfig.characterPreviewSettings)
+    ? workflowConfig.characterPreviewSettings
+    : undefined;
+  return normalizeCharacterPreviewFpsSettings(
+    requestPreviewSettings,
+    normalizeCharacterPreviewFpsSettings(savedPreviewSettings, getDefaultActionFps())
+  );
+}
+
+function getDefaultActionFps(): ActionFpsByAction {
+  return ACTION_DEFINITIONS.reduce((fpsByAction, actionDefinition) => {
+    fpsByAction[actionDefinition.action] = actionDefinition.fps;
+    return fpsByAction;
+  }, {} as ActionFpsByAction);
+}
+
+function normalizeCharacterPreviewFpsSettings(value: unknown, fallback: ActionFpsByAction): ActionFpsByAction {
+  if (!isPlainObject(value)) {
+    return fallback;
+  }
+  const legacyFps = clampFps(value.previewFps, fallback.walk);
+  return {
+    idle: clampFps(value.idleFps, fallback.idle),
+    walk: clampFps(value.walkFps, legacyFps),
+    run: clampFps(value.runFps, legacyFps),
+    attack1: clampFps(value.attackFps, legacyFps),
+    jump: clampFps(value.jumpFps, legacyFps)
+  };
+}
+
+function clampFps(value: unknown, fallback: number): number {
+  const numberValue = Number(value);
+  if (!Number.isFinite(numberValue)) {
+    return fallback;
+  }
+  return Math.max(GDEVELOP_EXTENSION_MIN_FPS, Math.min(GDEVELOP_EXTENSION_MAX_FPS, Math.round(numberValue)));
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 function buildGDevelopSpriteInitialInstance(exportSize: number) {

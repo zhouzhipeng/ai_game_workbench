@@ -2423,7 +2423,8 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
     try {
       const result = await createGDevelopExtensionExport({
         characterId,
-        exportSize: gdevelopExtensionExportSize
+        exportSize: gdevelopExtensionExportSize,
+        characterPreviewSettings: loadCharacterPreviewSettings()
       });
       setGDevelopExtensionExportResult(result);
       setGDevelopExtensionExportStatus(`GDevelop extension ready: ${result.exportedActions.join(" / ")}, ${result.animationCount} animations.`);

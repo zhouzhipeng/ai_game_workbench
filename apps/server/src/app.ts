@@ -90,6 +90,7 @@ export function createApp(options: CreateAppOptions) {
   });
   registerGDevelopExtensionExportRoutes(app, {
     storageDir: options.storageDir,
+    presetsDir,
     module01CharacterExportDir
   });
   registerOneClickCharacterRoutes(app, {
