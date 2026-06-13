@@ -376,6 +376,14 @@ const VIDEO_MODELS = [
     defaultResolution: "720p"
   },
   {
+    id: LOCAL_COMFYUI_VIDEO_MODEL,
+    label: "ComfyUI workflow",
+    durationOptions: rangeInclusive(2, 8),
+    defaultDurationSeconds: 4,
+    resolutionOptions: ["512x512", "640x640", "768x768"],
+    defaultResolution: "512x512"
+  },
+  {
     id: "apimart/seedance-2.0",
     label: "Seedance 2.0",
     durationOptions: rangeInclusive(4, 15),
