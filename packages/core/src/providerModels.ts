@@ -48,6 +48,7 @@ export const OPENROUTER_COMPATIBLE_PROVIDER_ID = "openrouter-compatible";
 export const APIMART_PROVIDER_ID = "apimart";
 export const LOCAL_CODEX_PROVIDER_ID = "local-codex";
 export const LOCAL_CODEX_IMAGE_MODEL = "local/gpt-image-2";
+export const LOCAL_CODEX_VIDEO_MODEL = "local/gpt-sora";
 
 export const DEFAULT_PROVIDER_SETTINGS: readonly ProviderSettings[] = [
   {
@@ -178,6 +179,18 @@ export const DEFAULT_PROVIDER_MODEL_PRESETS: readonly ProviderModelPreset[] = [
     enabled: true,
     durationOptions: rangeInclusive(2, 12),
     defaultDurationSeconds: 5,
+    resolutionOptions: ["480p", "720p", "1080p"],
+    defaultResolution: "720p"
+  },
+  {
+    id: LOCAL_CODEX_VIDEO_MODEL,
+    providerId: LOCAL_CODEX_PROVIDER_ID,
+    upstreamModel: LOCAL_CODEX_VIDEO_MODEL,
+    label: "Local GPT Sora",
+    capability: "video",
+    enabled: true,
+    durationOptions: rangeInclusive(4, 15),
+    defaultDurationSeconds: 4,
     resolutionOptions: ["480p", "720p", "1080p"],
     defaultResolution: "720p"
   }

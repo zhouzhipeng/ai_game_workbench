@@ -1,6 +1,6 @@
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { LocalCodexImageGenerator } from "./providers/localCodex";
+import type { LocalCodexImageGenerator, LocalCodexVideoGenerator } from "./providers/localCodex";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const SERVER_ROOT = resolve(REPO_ROOT, "apps/server");
@@ -17,6 +17,7 @@ export interface AppConfig {
   module01CharacterExportDir: string;
   port: number;
   localCodexImageGenerator?: LocalCodexImageGenerator;
+  localCodexVideoGenerator?: LocalCodexVideoGenerator;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {

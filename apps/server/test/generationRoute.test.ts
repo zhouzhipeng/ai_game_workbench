@@ -972,6 +972,76 @@ describe("generation route", () => {
     await app.close();
   });
 
+  it("generates local GPT Sora videos from local workbench assets", async () => {
+    const storageDir = makeStorageDir();
+    mkdirSync(join(storageDir, "assets"), { recursive: true });
+    writeFileSync(join(storageDir, "assets", "hero.png"), "hero-frame");
+    const localCodexVideoGenerator = vi.fn(async (input) => {
+      expect(input.model).toBe("local/gpt-sora");
+      expect(input.prompt).toContain("姝ｉ潰濂旇窇寰幆");
+      expect(input.durationSeconds).toBe(4);
+      expect(input.resolution).toBe("720p");
+      expect(input.imagePaths).toEqual([join(storageDir, "assets", "hero.png")]);
+      return {
+        buffer: Buffer.from([1, 2, 3, 4]),
+        extension: "mp4" as const,
+        providerResponse: {
+          provider: "local-codex",
+          model: input.model
+        }
+      };
+    });
+    const app = createApp({
+      ffmpegPath: "ffmpeg",
+      port: 8787,
+      storageDir,
+      localCodexVideoGenerator
+    });
+    await app.ready();
+
+    const submit = await app.inject({
+      method: "POST",
+      url: "/api/generation/video",
+      headers: {
+        "x-character-id": "hero"
+      },
+      payload: {
+        model: "local/gpt-sora",
+        prompt: "姝ｉ潰濂旇窇寰幆",
+        firstFrameUrl: "/assets/hero.png",
+        durationSeconds: 4,
+        resolution: "720p"
+      }
+    });
+
+    expect(submit.statusCode).toBe(200);
+    expect(submit.json()).toMatchObject({
+      status: "completed",
+      localVideoUrl: "/characters/hero/base-character/walk-video/source.mp4"
+    });
+    const jobId = submit.json().jobId as string;
+    expect(jobId).toMatch(/^local-sora-/);
+    expect([...readFileSync(join(storageDir, "characters", "hero", "base-character", "walk-video", "source.mp4"))]).toEqual([1, 2, 3, 4]);
+
+    const status = await app.inject({
+      method: "GET",
+      url: `/api/generation/video/${encodeURIComponent(jobId)}?characterId=hero`,
+      headers: {
+        "x-ai-provider-id": "apimart"
+      }
+    });
+
+    expect(status.statusCode).toBe(200);
+    expect(status.json()).toMatchObject({
+      jobId,
+      status: "completed",
+      localVideoUrl: "/characters/hero/base-character/walk-video/source.mp4"
+    });
+    expect(localCodexVideoGenerator).toHaveBeenCalledOnce();
+
+    await app.close();
+  });
+
   it("rejects public first-frame URLs that return an ngrok warning page instead of an image", async () => {
     const fetchMock = vi.fn(async () =>
       new Response("ERR_NGROK_6024", {
@@ -1138,7 +1208,7 @@ describe("generation route", () => {
     });
 
     expect(response.statusCode).toBe(200);
-    const requestBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body));
+    const requestBody = JSON.parse(String(fetchMock.mock.calls.at(-1)?.[1]?.body));
     expect(requestBody).toMatchObject({
       model: "doubao-seedance-1-0-pro-quality",
       duration: 2,

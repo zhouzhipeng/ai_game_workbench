@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, extname, join, resolve, sep } from "node:path";
 import type { FastifyInstance } from "fastify";
@@ -23,9 +23,12 @@ import {
 } from "../providers/apimartVideo";
 import {
   generateLocalCodexImage,
+  generateLocalCodexVideo,
   isLocalCodexImageModel,
+  isLocalCodexVideoModel,
   type LocalCodexImageGenerationInput,
-  type LocalCodexImageGenerationResult
+  type LocalCodexImageGenerationResult,
+  type LocalCodexVideoGenerationResult
 } from "../providers/localCodex";
 import type { AppConfig } from "../config";
 import { resolvePublicAssetBaseUrl, resolvePublicServerBaseUrl } from "./assets";
@@ -312,10 +315,25 @@ export function registerGenerationRoutes(app: FastifyInstance, config: AppConfig
     if ("error" in resolvedModel) {
       return reply.code(resolvedModel.statusCode).send({ error: resolvedModel.error });
     }
+    const actionKind = readActionKind(request.query) ?? readActionKind(request.headers);
+    const characterId = readCharacterId(request.body) ?? readCharacterId(request.headers);
+    if (resolvedModel.provider.kind === "local-codex" || isLocalCodexVideoModel(resolvedModel.model.upstreamModel)) {
+      try {
+        const localResult = await runLocalCodexVideoGeneration({
+          ...input,
+          model: resolvedModel.model.upstreamModel
+        }, config);
+        return await storeLocalVideoGenerationResult(localResult, config, {
+          characterId,
+          actionKind
+        });
+      } catch (error: unknown) {
+        return sendGenerationError(error, reply);
+      }
+    }
     if (resolvedModel.provider.kind !== "openrouter" && resolvedModel.provider.kind !== "apimart") {
       return reply.code(400).send({ error: "Only OpenRouter and APIMart video models are supported" });
     }
-    const actionKind = readActionKind(request.query) ?? readActionKind(request.headers);
     if (resolvedModel.model.id === APIMART_SEEDANCE_1_PRO_QUALITY_MODEL_ID && actionKind === "attack-1") {
       return reply.code(400).send({ error: "Seedance 1.0 Pro Quality is only supported for walk, run, and jump videos" });
     }
@@ -370,16 +388,26 @@ export function registerGenerationRoutes(app: FastifyInstance, config: AppConfig
   });
 
   app.get("/api/generation/video/:jobId", async (request, reply) => {
+    const { jobId } = request.params as { jobId: string };
+    const jobIdError = validateJobId(jobId);
+    if (jobIdError) {
+      return reply.code(400).send({ error: jobIdError });
+    }
+    if (isLocalSoraJobId(jobId)) {
+      try {
+        return await storeLocalVideoJobStatus(jobId, config, {
+          characterId: readCharacterId(request.query) ?? readCharacterId(request.headers),
+          actionKind: readActionKind(request.query) ?? readActionKind(request.headers)
+        });
+      } catch (error: unknown) {
+        return sendGenerationError(error, reply);
+      }
+    }
     const providerAuth = readProviderRequestAuth(request.headers);
     if (providerAuth.providerId === "apimart") {
       const settingsModel = await resolveGenerationProviderModel(config, "apimart/seedance-2.0", "video", providerAuth);
       if ("error" in settingsModel) {
         return reply.code(settingsModel.statusCode).send({ error: settingsModel.error });
-      }
-      const { jobId } = request.params as { jobId: string };
-      const jobIdError = validateJobId(jobId);
-      if (jobIdError) {
-        return reply.code(400).send({ error: jobIdError });
       }
       const client = new ApimartVideoClient({ apiKey: settingsModel.apiKey ?? "", baseUrl: settingsModel.baseUrl ?? "" });
       try {
@@ -395,11 +423,6 @@ export function registerGenerationRoutes(app: FastifyInstance, config: AppConfig
     const provider = await resolveOpenRouterVideoProvider(config, providerAuth);
     if ("error" in provider) {
       return reply.code(provider.statusCode).send({ error: provider.error });
-    }
-    const { jobId } = request.params as { jobId: string };
-    const jobIdError = validateJobId(jobId);
-    if (jobIdError) {
-      return reply.code(400).send({ error: jobIdError });
     }
     const client = new OpenRouterClient({ apiKey: provider.apiKey, baseUrl: provider.baseUrl });
     try {
@@ -564,6 +587,35 @@ async function runLocalCodexImageGeneration(
   return generator(input);
 }
 
+async function runLocalCodexVideoGeneration(
+  input: Parameters<typeof buildVideoGenerationPayload>[0],
+  config: AppConfig
+): Promise<LocalCodexVideoGenerationResult> {
+  const sources = [
+    input.firstFrameUrl,
+    input.lastFrameUrl,
+    ...(input.inputReferenceUrls ?? [])
+  ].filter((url): url is string => typeof url === "string" && url.trim().length > 0);
+  return withLocalCodexVideoSources(
+    sources,
+    config.storageDir,
+    async (imagePaths) => {
+      const generator = config.localCodexVideoGenerator ?? generateLocalCodexVideo;
+      return generator({
+        model: input.model,
+        prompt: [
+          input.prompt,
+          input.referenceOnly ? "Treat additional reference images as guidance only; preserve the first frame composition and character identity." : ""
+        ].filter(Boolean).join("\n\n"),
+        durationSeconds: Number(input.durationSeconds ?? 4),
+        resolution: input.resolution ?? "720p",
+        imagePaths,
+        workingDirectory: process.cwd()
+      });
+    }
+  );
+}
+
 type LocalCodexImageSource = { dataUrl: string } | { filePath: string } | undefined;
 
 async function withLocalCodexImageSources<T>(
@@ -593,6 +645,53 @@ async function writeDataUrlImageToTempFile(dataUrl: string, tempDir: string, ind
   const image = parseDataUrlImage(dataUrl);
   const filePath = join(tempDir, `input-${index}.${image.extension}`);
   await writeFile(filePath, image.buffer);
+  return filePath;
+}
+
+async function withLocalCodexVideoSources<T>(
+  urls: readonly string[],
+  storageDir: string,
+  callback: (imagePaths: string[]) => Promise<T>
+): Promise<T> {
+  const tempDir = await mkdtemp(join(tmpdir(), "ai-game-workbench-local-sora-input-"));
+  try {
+    const imagePaths: string[] = [];
+    for (const url of urls) {
+      imagePaths.push(await resolveLocalCodexVideoImagePath(url, storageDir, tempDir, imagePaths.length));
+    }
+    return await callback(imagePaths);
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+}
+
+async function resolveLocalCodexVideoImagePath(
+  url: string,
+  storageDir: string,
+  tempDir: string,
+  index: number
+): Promise<string> {
+  const trimmed = url.trim();
+  if (trimmed.startsWith("data:image/")) {
+    return writeDataUrlImageToTempFile(trimmed, tempDir, index);
+  }
+  const localPath = resolveLocalWorkbenchAssetPath(trimmed, storageDir);
+  if (localPath) {
+    if (!existsSync(localPath)) {
+      throw new Error(`Local GPT Sora input image was not found: ${localPath}`);
+    }
+    return localPath;
+  }
+  const response = await fetch(trimmed);
+  if (!response.ok) {
+    throw new Error(`Local GPT Sora input image download failed: ${response.status}`);
+  }
+  const contentType = response.headers.get("content-type") ?? "image/png";
+  if (!contentType.toLowerCase().startsWith("image/")) {
+    throw new Error(`Local GPT Sora input URL did not return an image: ${contentType}`);
+  }
+  const filePath = join(tempDir, `input-${index}.${extensionFromContentType(contentType)}`);
+  await writeFile(filePath, Buffer.from(await response.arrayBuffer()));
   return filePath;
 }
 
@@ -732,6 +831,81 @@ async function storeVideoJobStatus(
     providerResponse
   };
   return body;
+}
+
+async function storeLocalVideoGenerationResult(
+  result: LocalCodexVideoGenerationResult,
+  config: Pick<AppConfig, "storageDir">,
+  options: {
+    characterId?: string;
+    actionKind?: AdvancedActionKind;
+  } = {}
+) {
+  const jobId = `local-sora-${randomUUID()}`;
+  const jobDir = join(config.storageDir, "jobs", jobId);
+  await mkdir(jobDir, { recursive: true });
+  const localPath = join(jobDir, "source.mp4");
+  await writeFile(localPath, result.buffer);
+  const body = {
+    id: jobId,
+    jobId,
+    status: "completed",
+    videoUrl: `/jobs/${jobId}/source.mp4`,
+    localVideoUrl: `/jobs/${jobId}/source.mp4`,
+    providerResponse: {
+      ...result.providerResponse,
+      extension: result.extension
+    }
+  };
+  await writeFile(join(jobDir, "status.json"), `${JSON.stringify(body, null, 2)}\n`, "utf8");
+  if (options.characterId) {
+    return storeLocalVideoJobStatus(jobId, config, options);
+  }
+  return body;
+}
+
+async function storeLocalVideoJobStatus(
+  jobId: string,
+  config: Pick<AppConfig, "storageDir">,
+  options: {
+    characterId?: string;
+    actionKind?: AdvancedActionKind;
+  } = {}
+) {
+  const sourcePath = join(config.storageDir, "jobs", jobId, "source.mp4");
+  if (!existsSync(sourcePath)) {
+    return {
+      jobId,
+      status: "failed",
+      providerResponse: {
+        error: `Local GPT Sora video file was not found for ${jobId}`
+      }
+    };
+  }
+  let providerResponse: unknown;
+  const statusPath = join(config.storageDir, "jobs", jobId, "status.json");
+  if (existsSync(statusPath)) {
+    providerResponse = parseJsonBody(await readFile(statusPath, "utf8"));
+  }
+
+  const videoDirectory = options.actionKind
+    ? ["advanced-character", options.actionKind, "video"]
+    : ["base-character", "walk-video"];
+  let localVideoUrl = `/jobs/${jobId}/source.mp4`;
+  if (options.characterId) {
+    const targetDir = resolveCharacterPath(config.storageDir, options.characterId, ...videoDirectory);
+    await mkdir(targetDir, { recursive: true });
+    await copyFile(sourcePath, join(targetDir, "source.mp4"));
+    localVideoUrl = toCharacterUrl(options.characterId, ...videoDirectory, "source.mp4");
+  }
+
+  return {
+    jobId,
+    status: "completed",
+    videoUrl: `/jobs/${jobId}/source.mp4`,
+    localVideoUrl,
+    providerResponse
+  };
 }
 
 type CharacterImageTarget = "base-template-output" | "idle-4dir" | "walk-4dir" | "run-4dir" | "attack-middle-4dir";
@@ -1027,6 +1201,10 @@ function validateJobId(jobId: string): string | undefined {
     return "视频任务 ID 只能包含字母、数字、下划线和短横线。";
   }
   return undefined;
+}
+
+function isLocalSoraJobId(jobId: string): boolean {
+  return jobId.startsWith("local-sora-");
 }
 
 function normalizeVideoStatus(response: unknown): string {
