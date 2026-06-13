@@ -2091,6 +2091,7 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
     const state = advancedActions[actionKind];
     const firstFrameUrl = state.inputPreview?.publicUrl ?? state.inputPreview?.url ?? "";
     const label = getAdvancedActionLabel(actionKind);
+    const requestVideoSettings = getAdvancedVideoSettings(actionKind);
     if (!firstFrameUrl) {
       updateAdvancedAction(actionKind, { status: `请先准备${label}的 2x2 输入图。` });
       return;
@@ -2103,7 +2104,6 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
       updateAdvancedAction(actionKind, { status: "请先生成攻击中间帧，再提交攻击视频任务。" });
       return;
     }
-    const requestVideoSettings = getAdvancedVideoSettings(actionKind);
     if (actionKind === "attack-1" && requestVideoSettings.model === APIMART_SEEDANCE_1_PRO_QUALITY_MODEL) {
       updateAdvancedAction(actionKind, { status: "Seedance 1.0 Pro Quality 只用于步行、跑步和跳跃，攻击 1 请切换到 Seedance 2.0。" });
       return;
