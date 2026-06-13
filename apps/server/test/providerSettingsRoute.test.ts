@@ -5,8 +5,14 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createApp } from "../src/app";
 
 const tempDirs: string[] = [];
+const originalLocalGptSoraBin = process.env.LOCAL_GPT_SORA_BIN;
+const originalLocalSoraBin = process.env.LOCAL_SORA_BIN;
+const originalLocalGptSoraUseCodex = process.env.LOCAL_GPT_SORA_USE_CODEX;
 
 afterEach(() => {
+  restoreEnv("LOCAL_GPT_SORA_BIN", originalLocalGptSoraBin);
+  restoreEnv("LOCAL_SORA_BIN", originalLocalSoraBin);
+  restoreEnv("LOCAL_GPT_SORA_USE_CODEX", originalLocalGptSoraUseCodex);
   for (const dir of tempDirs.splice(0)) {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -20,6 +26,9 @@ function makeStorageDir() {
 
 describe("provider settings routes", () => {
   it("publishes enabled provider models with APIMart defaults", async () => {
+    delete process.env.LOCAL_GPT_SORA_BIN;
+    delete process.env.LOCAL_SORA_BIN;
+    delete process.env.LOCAL_GPT_SORA_USE_CODEX;
     const app = createApp({
       ffmpegPath: "ffmpeg",
       port: 8787,
@@ -43,8 +52,7 @@ describe("provider settings routes", () => {
     expect(response.json().videoModels.map((model: { id: string }) => model.id)).toEqual([
       "bytedance/seedance-2.0",
       "apimart/seedance-2.0",
-      "apimart/seedance-1.0-pro-quality",
-      "local/gpt-sora"
+      "apimart/seedance-1.0-pro-quality"
     ]);
     expect(response.json()).toMatchObject({
       defaults: {
@@ -66,6 +74,28 @@ describe("provider settings routes", () => {
         })
       ])
     });
+
+    await app.close();
+  });
+
+  it("publishes Local GPT Sora only when a local generator is configured", async () => {
+    process.env.LOCAL_GPT_SORA_BIN = process.execPath;
+    delete process.env.LOCAL_SORA_BIN;
+    delete process.env.LOCAL_GPT_SORA_USE_CODEX;
+    const app = createApp({
+      ffmpegPath: "ffmpeg",
+      port: 8787,
+      storageDir: makeStorageDir()
+    });
+    await app.ready();
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/provider-models"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().videoModels.map((model: { id: string }) => model.id)).toContain("local/gpt-sora");
 
     await app.close();
   });
@@ -202,3 +232,11 @@ describe("provider settings routes", () => {
     await app.close();
   });
 });
+
+function restoreEnv(name: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[name];
+  } else {
+    process.env[name] = value;
+  }
+}

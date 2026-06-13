@@ -71,6 +71,11 @@ export function isLocalCodexVideoModel(model: string): boolean {
   return model === LOCAL_CODEX_VIDEO_MODEL;
 }
 
+export function isLocalCodexVideoConfigured(): boolean {
+  const command = (process.env.LOCAL_GPT_SORA_BIN ?? process.env.LOCAL_SORA_BIN)?.trim();
+  return Boolean(command) || shouldUseCodexForLocalSora();
+}
+
 export async function generateLocalCodexImage(
   input: LocalCodexImageGenerationInput
 ): Promise<LocalCodexImageGenerationResult> {

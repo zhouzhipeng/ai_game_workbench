@@ -6,6 +6,7 @@ import {
   DEFAULT_PROVIDER_MODEL_PRESETS,
   DEFAULT_PROVIDER_SETTINGS,
   APIMART_PROVIDER_ID,
+  LOCAL_CODEX_VIDEO_MODEL,
   OPENROUTER_COMPATIBLE_PROVIDER_ID,
   OPENROUTER_PROVIDER_ID,
   type GenerationCapability,
@@ -17,6 +18,7 @@ import {
   type ProviderSettings
 } from "@ai-game-workbench/core";
 import type { AppConfig } from "./config";
+import { isLocalCodexVideoConfigured } from "./providers/localCodex";
 
 const PROVIDER_SETTINGS_PATH = ["config", "provider-settings.json"] as const;
 const PROVIDER_SECRETS_PATH = ["config", "provider-secrets.json"] as const;
@@ -127,7 +129,11 @@ export async function readPublicProviderModelCatalog(
   const settings = await readProviderSettingsDocument(config);
   const providers = settings.providers.filter((provider) => provider.enabled);
   const providerIds = new Set(providers.map((provider) => provider.id));
-  const models = settings.models.filter((model) => model.enabled && providerIds.has(model.providerId));
+  const models = settings.models.filter((model) =>
+    model.enabled &&
+    providerIds.has(model.providerId) &&
+    isPublicProviderModelAvailable(model)
+  );
   const imageModels = models.filter((model) => model.capability === "image");
   const videoModels = models.filter((model) => model.capability === "video");
   return {
@@ -140,6 +146,13 @@ export async function readPublicProviderModelCatalog(
       videoModelId: chooseDefaultModelId(settings.defaults.videoModelId, videoModels)
     }
   };
+}
+
+function isPublicProviderModelAvailable(model: ProviderModelPreset): boolean {
+  if (model.id === LOCAL_CODEX_VIDEO_MODEL) {
+    return isLocalCodexVideoConfigured();
+  }
+  return true;
 }
 
 export async function resolveGenerationProviderModel(
