@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { existsSync, readdirSync, statSync } from "node:fs";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { extname, join } from "node:path";
 import sharp from "sharp";
@@ -49,6 +49,12 @@ export type LocalCodexVideoGenerator = (
 interface CodexCommand {
   command: string;
   argsPrefix: string[];
+  label: string;
+}
+
+interface LocalSoraCommand {
+  command: string;
+  argsTemplate: string[];
   label: string;
 }
 
@@ -125,6 +131,78 @@ export async function generateLocalCodexImage(
 export async function generateLocalCodexVideo(
   input: LocalCodexVideoGenerationInput
 ): Promise<LocalCodexVideoGenerationResult> {
+  const localSoraCommand = resolveLocalSoraCommand();
+  if (localSoraCommand) {
+    return generateLocalSoraVideoWithCommand(input, localSoraCommand);
+  }
+  if (!shouldUseCodexForLocalSora()) {
+    throw new Error([
+      "Local GPT Sora is not configured.",
+      "Set LOCAL_GPT_SORA_BIN to a local video generator executable that writes an MP4 output file.",
+      "By default the workbench calls it with: --prompt-file <prompt.txt> --output <output.mp4> --duration <seconds> --resolution <resolution> --image <path>...",
+      "Set LOCAL_GPT_SORA_ARGS to a JSON string array if your generator uses different arguments.",
+      "The previous Codex prompt fallback is disabled because this environment does not expose a callable Sora/video tool. Set LOCAL_GPT_SORA_USE_CODEX=1 only when your Codex runtime has a real video generator."
+    ].join("\n"));
+  }
+  return generateLocalCodexVideoViaCodex(input);
+}
+
+async function generateLocalSoraVideoWithCommand(
+  input: LocalCodexVideoGenerationInput,
+  command: LocalSoraCommand
+): Promise<LocalCodexVideoGenerationResult> {
+  const runDir = await mkdtemp(join(tmpdir(), "ai-game-workbench-local-sora-"));
+  const promptPath = join(runDir, "prompt.txt");
+  const outputPath = join(runDir, "output.mp4");
+  try {
+    const prompt = buildLocalSoraPrompt(input);
+    await writeFile(promptPath, prompt, "utf8");
+    const args = expandLocalSoraArgs(command.argsTemplate, {
+      prompt,
+      promptPath,
+      outputPath,
+      input
+    });
+    const result = await runCommand(
+      command.command,
+      args,
+      input.workingDirectory,
+      "Local GPT Sora generation"
+    );
+    if (result.exitCode !== 0) {
+      throw new Error([
+        `Local GPT Sora command failed with exit code ${result.exitCode}.`,
+        result.stderr.trim(),
+        result.stdout.trim()
+      ].filter(Boolean).join("\n"));
+    }
+    if (!existsSync(outputPath)) {
+      throw new Error([
+        `Local GPT Sora command did not create the expected MP4: ${outputPath}`,
+        result.stderr.trim(),
+        result.stdout.trim()
+      ].filter(Boolean).join("\n"));
+    }
+    return {
+      buffer: await readFile(outputPath),
+      extension: extensionToVideoType(extname(outputPath)),
+      providerResponse: {
+        provider: "local-sora-command",
+        model: input.model,
+        localSoraCommand: command.label,
+        outputPath,
+        stdout: result.stdout.trim() || undefined,
+        stderr: result.stderr.trim() || undefined
+      }
+    };
+  } finally {
+    await rm(runDir, { recursive: true, force: true });
+  }
+}
+
+async function generateLocalCodexVideoViaCodex(
+  input: LocalCodexVideoGenerationInput
+): Promise<LocalCodexVideoGenerationResult> {
   const command = resolveCodexCommand();
   const generatedVideosBefore = snapshotGeneratedVideos();
   const runDir = await mkdtemp(join(tmpdir(), "ai-game-workbench-local-sora-"));
@@ -144,7 +222,7 @@ export async function generateLocalCodexVideo(
       messagePath,
       buildLocalSoraPrompt(input)
     ];
-    const result = await runCommand(command.command, args, input.workingDirectory);
+    const result = await runCommand(command.command, args, input.workingDirectory, "Local GPT Sora generation");
     const lastMessage = existsSync(messagePath) ? await readFile(messagePath, "utf8") : "";
     if (result.exitCode !== 0) {
       throw new Error([
@@ -175,6 +253,131 @@ export async function generateLocalCodexVideo(
   } finally {
     await rm(runDir, { recursive: true, force: true });
   }
+}
+
+function resolveLocalSoraCommand(): LocalSoraCommand | undefined {
+  const command = (process.env.LOCAL_GPT_SORA_BIN ?? process.env.LOCAL_SORA_BIN)?.trim();
+  if (!command) {
+    return undefined;
+  }
+  const argsTemplate = parseLocalSoraArgs(
+    process.env.LOCAL_GPT_SORA_ARGS ?? process.env.LOCAL_SORA_ARGS
+  );
+  return {
+    command,
+    argsTemplate,
+    label: command
+  };
+}
+
+function parseLocalSoraArgs(value: string | undefined): string[] {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return [
+      "--prompt-file",
+      "{promptFile}",
+      "--output",
+      "{output}",
+      "--duration",
+      "{duration}",
+      "--resolution",
+      "{resolution}",
+      "{imageArgs}"
+    ];
+  }
+  if (trimmed.startsWith("[")) {
+    const parsed = JSON.parse(trimmed);
+    if (!Array.isArray(parsed) || !parsed.every((item) => typeof item === "string")) {
+      throw new Error("LOCAL_GPT_SORA_ARGS must be a JSON array of strings.");
+    }
+    return parsed;
+  }
+  return splitShellLikeArgs(trimmed);
+}
+
+function expandLocalSoraArgs(
+  argsTemplate: readonly string[],
+  context: {
+    prompt: string;
+    promptPath: string;
+    outputPath: string;
+    input: LocalCodexVideoGenerationInput;
+  }
+): string[] {
+  const expanded: string[] = [];
+  for (const arg of argsTemplate) {
+    if (arg === "{images}") {
+      expanded.push(...context.input.imagePaths);
+      continue;
+    }
+    if (arg === "{imageArgs}") {
+      for (const imagePath of context.input.imagePaths) {
+        expanded.push("--image", imagePath);
+      }
+      continue;
+    }
+    expanded.push(arg
+      .replaceAll("{prompt}", context.prompt)
+      .replaceAll("{promptFile}", context.promptPath)
+      .replaceAll("{output}", context.outputPath)
+      .replaceAll("{duration}", String(context.input.durationSeconds || 4))
+      .replaceAll("{resolution}", context.input.resolution || "720p")
+      .replace(/\{image(\d+)\}/g, (_match, index: string) => context.input.imagePaths[Number(index)] ?? ""));
+  }
+  return expanded;
+}
+
+function splitShellLikeArgs(value: string): string[] {
+  const args: string[] = [];
+  let current = "";
+  let quote: '"' | "'" | undefined;
+  let escaping = false;
+  for (const char of value) {
+    if (escaping) {
+      current += char;
+      escaping = false;
+      continue;
+    }
+    if (char === "\\") {
+      escaping = true;
+      continue;
+    }
+    if (quote) {
+      if (char === quote) {
+        quote = undefined;
+      } else {
+        current += char;
+      }
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+      continue;
+    }
+    if (/\s/.test(char)) {
+      if (current) {
+        args.push(current);
+        current = "";
+      }
+      continue;
+    }
+    current += char;
+  }
+  if (escaping) {
+    current += "\\";
+  }
+  if (quote) {
+    throw new Error("LOCAL_GPT_SORA_ARGS has an unterminated quote.");
+  }
+  if (current) {
+    args.push(current);
+  }
+  return args;
+}
+
+function shouldUseCodexForLocalSora(): boolean {
+  const value = process.env.LOCAL_GPT_SORA_USE_CODEX?.trim().toLowerCase();
+  return value === "1" || value === "true" || value === "yes";
 }
 
 function buildLocalSoraPrompt(input: LocalCodexVideoGenerationInput): string {
@@ -366,7 +569,7 @@ function extensionToVideoType(extension: string): "mp4" | "mov" | "webm" {
   return "mp4";
 }
 
-function runCommand(command: string, args: readonly string[], cwd: string): Promise<{
+function runCommand(command: string, args: readonly string[], cwd: string, timeoutLabel = "Local Codex command"): Promise<{
   exitCode: number | null;
   stdout: string;
   stderr: string;
@@ -380,7 +583,7 @@ function runCommand(command: string, args: readonly string[], cwd: string): Prom
     const timeoutMs = Number(process.env.LOCAL_CODEX_TIMEOUT_MS ?? 10 * 60 * 1000);
     const timeout = setTimeout(() => {
       child.kill("SIGKILL");
-      reject(new Error(`Local Codex image generation timed out after ${timeoutMs}ms.`));
+      reject(new Error(`${timeoutLabel} timed out after ${timeoutMs}ms.`));
     }, timeoutMs);
     let stdout = "";
     let stderr = "";
