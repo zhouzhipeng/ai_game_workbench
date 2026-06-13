@@ -1,6 +1,8 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import ffmpegStaticPath from "ffmpeg-static";
+import sharp from "sharp";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { generateLocalComfyUiVideo, isLocalComfyUiVideoConfigured } from "../src/providers/comfyUiVideo";
 
@@ -10,6 +12,7 @@ const originalComfyUrl = process.env.LOCAL_COMFYUI_URL;
 const originalFps = process.env.LOCAL_COMFYUI_VIDEO_FPS;
 const originalDisableDefaults = process.env.LOCAL_COMFYUI_VIDEO_DISABLE_DEFAULTS;
 const originalComfyBaseDir = process.env.LOCAL_COMFYUI_BASE_DIR;
+const originalExactSheetMode = process.env.LOCAL_COMFYUI_VIDEO_EXACT_SHEET_MODE;
 const tempDirs: string[] = [];
 
 afterEach(() => {
@@ -20,6 +23,7 @@ afterEach(() => {
   restoreEnv("LOCAL_COMFYUI_VIDEO_FPS", originalFps);
   restoreEnv("LOCAL_COMFYUI_VIDEO_DISABLE_DEFAULTS", originalDisableDefaults);
   restoreEnv("LOCAL_COMFYUI_BASE_DIR", originalComfyBaseDir);
+  restoreEnv("LOCAL_COMFYUI_VIDEO_EXACT_SHEET_MODE", originalExactSheetMode);
   for (const dir of tempDirs.splice(0)) {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -85,6 +89,7 @@ describe("ComfyUI video provider", () => {
     writeFileSync(referencePath, "png");
     process.env.LOCAL_COMFYUI_URL = "http://127.0.0.1:8000/";
     process.env.LOCAL_COMFYUI_VIDEO_FPS = "12";
+    process.env.LOCAL_COMFYUI_VIDEO_EXACT_SHEET_MODE = "off";
     process.env.LOCAL_COMFYUI_VIDEO_WORKFLOW_JSON = JSON.stringify({
       "1": {
         class_type: "LoadImage",
@@ -175,6 +180,44 @@ describe("ComfyUI video provider", () => {
       promptId: "prompt-1"
     });
   });
+
+  it("can generate an exact sprite sheet video without submitting a ComfyUI prompt", async () => {
+    const root = mkdtempSync(join(tmpdir(), "ai-game-workbench-exact-sheet-test-"));
+    tempDirs.push(root);
+    const imagePath = join(root, "walk-4dir.png");
+    writeFileSync(imagePath, await makeFourDirectionSheet());
+    process.env.LOCAL_COMFYUI_URL = "http://127.0.0.1:8000/";
+    process.env.LOCAL_COMFYUI_VIDEO_FPS = "4";
+    process.env.LOCAL_COMFYUI_VIDEO_EXACT_SHEET_MODE = "always";
+    process.env.LOCAL_COMFYUI_VIDEO_WORKFLOW_JSON = JSON.stringify({
+      "1": {
+        class_type: "SaveVideo",
+        inputs: {}
+      }
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await generateLocalComfyUiVideo({
+      model: "local/comfyui-video-workflow",
+      prompt: "walk cycle",
+      durationSeconds: 2,
+      resolution: "64x64",
+      imagePaths: [imagePath],
+      workingDirectory: root,
+      ffmpegPath: ffmpegStaticPath || "ffmpeg"
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(result.extension).toBe("mp4");
+    expect(result.buffer.includes(Buffer.from("ftyp"))).toBe(true);
+    expect(result.providerResponse).toMatchObject({
+      provider: "local-comfyui",
+      mode: "exact-sheet-preserve",
+      frameCount: 9,
+      resolution: "64x64"
+    });
+  });
 });
 
 function restoreEnv(name: string, value: string | undefined): void {
@@ -183,4 +226,29 @@ function restoreEnv(name: string, value: string | undefined): void {
   } else {
     process.env[name] = value;
   }
+}
+
+async function makeFourDirectionSheet(): Promise<Buffer> {
+  const block = async (color: string) =>
+    sharp({
+      create: {
+        width: 10,
+        height: 18,
+        channels: 4,
+        background: color
+      }
+    }).png().toBuffer();
+  return sharp({
+    create: {
+      width: 64,
+      height: 64,
+      channels: 4,
+      background: { r: 0, g: 255, b: 0, alpha: 1 }
+    }
+  }).composite([
+    { input: await block("#ff0000"), left: 11, top: 8 },
+    { input: await block("#0000ff"), left: 43, top: 8 },
+    { input: await block("#ffffff"), left: 11, top: 40 },
+    { input: await block("#000000"), left: 43, top: 40 }
+  ]).png().toBuffer();
 }

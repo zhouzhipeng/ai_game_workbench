@@ -1,7 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { basename, extname, join } from "node:path";
+import sharp from "sharp";
+import { runFfmpeg } from "../processing/ffmpeg";
 
 export const LOCAL_COMFYUI_VIDEO_MODEL = "local/comfyui-video-workflow";
 const DEFAULT_COMFYUI_VIDEO_WORKFLOW_FILES = [
@@ -16,6 +19,7 @@ export interface LocalComfyUiVideoGenerationInput {
   resolution: string;
   imagePaths: readonly string[];
   workingDirectory: string;
+  ffmpegPath?: string;
 }
 
 export interface LocalComfyUiVideoGenerationResult {
@@ -49,6 +53,14 @@ interface ComfyOutputFile {
   type?: string;
 }
 
+interface ImageSubject {
+  input: Buffer;
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
 export function isLocalComfyUiVideoModel(model: string): boolean {
   return model === LOCAL_COMFYUI_VIDEO_MODEL;
 }
@@ -67,6 +79,16 @@ export async function generateLocalComfyUiVideo(
   const firstImagePath = input.imagePaths[0];
   if (!firstImagePath) {
     throw new Error("ComfyUI workflow video requires a first-frame image.");
+  }
+  const exactSheetMode = getExactSheetMode();
+  if (shouldGenerateExactSheetVideo(input, exactSheetMode)) {
+    try {
+      return await generateExactSheetVideo(input, config);
+    } catch (error) {
+      if (exactSheetMode === "always") {
+        throw error;
+      }
+    }
   }
   const uploadedImages = await Promise.all(
     input.imagePaths.map((imagePath) => uploadComfyImage(config.baseUrl, imagePath))
@@ -230,6 +252,249 @@ function parseVideoResolution(value: string | undefined): { width: number; heigh
 function normalizeVideoFrameCount(durationSeconds: number, fps: number): number {
   const raw = Math.max(9, Math.round(durationSeconds * fps));
   return Math.max(9, Math.round((raw - 1) / 8) * 8 + 1);
+}
+
+function getExactSheetMode(): "auto" | "always" | "off" {
+  const value = process.env.LOCAL_COMFYUI_VIDEO_EXACT_SHEET_MODE?.trim().toLowerCase();
+  if (!value || value === "auto") {
+    return "auto";
+  }
+  if (value === "1" || value === "true" || value === "always" || value === "on") {
+    return "always";
+  }
+  return "off";
+}
+
+function shouldGenerateExactSheetVideo(
+  input: LocalComfyUiVideoGenerationInput,
+  mode: "auto" | "always" | "off"
+): boolean {
+  if (mode === "off") {
+    return false;
+  }
+  if (mode === "always") {
+    return true;
+  }
+  const normalizedPrompt = input.prompt.toLowerCase();
+  return normalizedPrompt.includes("walk") || normalizedPrompt.includes("步行");
+}
+
+async function generateExactSheetVideo(
+  input: LocalComfyUiVideoGenerationInput,
+  config: ComfyUiWorkflowConfig
+): Promise<LocalComfyUiVideoGenerationResult> {
+  const firstImagePath = input.imagePaths[0];
+  if (!firstImagePath) {
+    throw new Error("Exact sheet video requires a first-frame image.");
+  }
+  const size = parseVideoResolution(input.resolution);
+  const duration = Number.isFinite(input.durationSeconds) && input.durationSeconds > 0 ? input.durationSeconds : 4;
+  const fps = Number.isFinite(config.fps) && config.fps > 0 ? config.fps : 12;
+  const frameCount = normalizeVideoFrameCount(duration, fps);
+  const tempDir = await mkdtemp(join(tmpdir(), "ai-game-workbench-exact-sheet-"));
+  const framesDir = join(tempDir, "frames");
+  const outputPath = join(tempDir, "exact-sheet.mp4");
+  try {
+    await mkdir(framesDir, { recursive: true });
+    const sheet = await sharp(firstImagePath)
+      .resize(size.width, size.height, { fit: "fill", kernel: "lanczos3" })
+      .ensureAlpha()
+      .png()
+      .toBuffer();
+    const cellWidth = Math.floor(size.width / 2);
+    const cellHeight = Math.floor(size.height / 2);
+    const cells = await Promise.all([0, 1, 2, 3].map(async (index) => {
+      const left = (index % 2) * cellWidth;
+      const top = Math.floor(index / 2) * cellHeight;
+      const cell = await sharp(sheet)
+        .extract({ left, top, width: cellWidth, height: cellHeight })
+        .ensureAlpha()
+        .png()
+        .toBuffer();
+      const background = await sampleImageBackground(cell);
+      return {
+        left,
+        top,
+        background,
+        subject: await extractForegroundSubject(cell, background)
+      };
+    }));
+
+    for (let frameIndex = 0; frameIndex < frameCount; frameIndex += 1) {
+      const cycle = frameIndex / Math.max(1, frameCount - 1);
+      const phase = Math.sin(cycle * Math.PI * 2);
+      const bob = Math.round(Math.abs(phase) * Math.max(1, cellHeight * 0.012));
+      const composites = [];
+      for (const [index, cell] of cells.entries()) {
+        composites.push({
+          input: await sharp({
+            create: {
+              width: cellWidth,
+              height: cellHeight,
+              channels: 4,
+              background: { ...cell.background, alpha: 1 }
+            }
+          }).png().toBuffer(),
+          left: cell.left,
+          top: cell.top
+        });
+        const horizontal = index >= 2
+          ? Math.round(phase * Math.max(1, cellWidth * 0.012)) * (index === 2 ? -1 : 1)
+          : Math.round(phase * Math.max(1, cellWidth * 0.006));
+        composites.push({
+          input: cell.subject.input,
+          left: clampInteger(cell.left + cell.subject.left + horizontal, cell.left, cell.left + cellWidth - cell.subject.width),
+          top: clampInteger(cell.top + cell.subject.top - bob, cell.top, cell.top + cellHeight - cell.subject.height)
+        });
+      }
+      const frame = await sharp({
+        create: {
+          width: size.width,
+          height: size.height,
+          channels: 4,
+          background: { r: 0, g: 255, b: 0, alpha: 1 }
+        }
+      }).composite(composites).png().toBuffer();
+      await writeFile(join(framesDir, `frame_${String(frameIndex + 1).padStart(4, "0")}.png`), frame);
+    }
+
+    await runFfmpeg(input.ffmpegPath ?? process.env.FFMPEG_PATH ?? "ffmpeg", [
+      "-y",
+      "-framerate",
+      String(fps),
+      "-i",
+      join(framesDir, "frame_%04d.png"),
+      "-c:v",
+      "libx264",
+      "-pix_fmt",
+      "yuv420p",
+      "-movflags",
+      "+faststart",
+      outputPath
+    ]);
+    return {
+      buffer: await readFile(outputPath),
+      extension: "mp4",
+      providerResponse: {
+        provider: "local-comfyui",
+        model: input.model,
+        mode: "exact-sheet-preserve",
+        workflowSource: config.workflowSource,
+        fps,
+        frameCount,
+        resolution: `${size.width}x${size.height}`
+      }
+    };
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+}
+
+async function sampleImageBackground(input: Buffer): Promise<{ r: number; g: number; b: number }> {
+  const image = sharp(input).ensureAlpha();
+  const { data, info } = await image.raw().toBuffer({ resolveWithObject: true });
+  const samples = [
+    readRawColor(data, info.width, 0, 0),
+    readRawColor(data, info.width, info.width - 1, 0),
+    readRawColor(data, info.width, 0, info.height - 1),
+    readRawColor(data, info.width, info.width - 1, info.height - 1)
+  ];
+  return samples.sort((a, b) => b.count - a.count)[0]?.color ?? { r: 0, g: 255, b: 0 };
+}
+
+function readRawColor(
+  data: Buffer,
+  width: number,
+  x: number,
+  y: number
+): { count: number; color: { r: number; g: number; b: number } } {
+  const offset = ((y * width) + x) * 4;
+  return {
+    count: 1,
+    color: {
+      r: data[offset] ?? 0,
+      g: data[offset + 1] ?? 255,
+      b: data[offset + 2] ?? 0
+    }
+  };
+}
+
+async function extractForegroundSubject(
+  input: Buffer,
+  background: { r: number; g: number; b: number }
+): Promise<ImageSubject> {
+  const image = sharp(input).ensureAlpha();
+  const { data, info } = await image.raw().toBuffer({ resolveWithObject: true });
+  let left = info.width;
+  let top = info.height;
+  let right = -1;
+  let bottom = -1;
+  const threshold = 46;
+  for (let y = 0; y < info.height; y += 1) {
+    for (let x = 0; x < info.width; x += 1) {
+      const offset = ((y * info.width) + x) * 4;
+      if (isForegroundPixel(data, offset, background, threshold)) {
+        left = Math.min(left, x);
+        top = Math.min(top, y);
+        right = Math.max(right, x);
+        bottom = Math.max(bottom, y);
+      }
+    }
+  }
+  if (right < left || bottom < top) {
+    return {
+      input,
+      left: 0,
+      top: 0,
+      width: info.width,
+      height: info.height
+    };
+  }
+  const width = right - left + 1;
+  const height = bottom - top + 1;
+  const subject = Buffer.alloc(width * height * 4);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const sourceOffset = (((top + y) * info.width) + left + x) * 4;
+      const targetOffset = ((y * width) + x) * 4;
+      subject[targetOffset] = data[sourceOffset] ?? 0;
+      subject[targetOffset + 1] = data[sourceOffset + 1] ?? 0;
+      subject[targetOffset + 2] = data[sourceOffset + 2] ?? 0;
+      subject[targetOffset + 3] = isForegroundPixel(data, sourceOffset, background, threshold)
+        ? data[sourceOffset + 3] ?? 255
+        : 0;
+    }
+  }
+  return {
+    input: await sharp(subject, { raw: { width, height, channels: 4 } }).png().toBuffer(),
+    left,
+    top,
+    width,
+    height
+  };
+}
+
+function isForegroundPixel(
+  data: Buffer,
+  offset: number,
+  background: { r: number; g: number; b: number },
+  threshold: number
+): boolean {
+  const alpha = data[offset + 3] ?? 0;
+  if (alpha === 0) {
+    return false;
+  }
+  const dr = (data[offset] ?? 0) - background.r;
+  const dg = (data[offset + 1] ?? 0) - background.g;
+  const db = (data[offset + 2] ?? 0) - background.b;
+  return Math.sqrt(dr * dr + dg * dg + db * db) > threshold;
+}
+
+function clampInteger(value: number, min: number, max: number): number {
+  if (max < min) {
+    return min;
+  }
+  return Math.max(min, Math.min(max, value));
 }
 
 function applyWorkflowPlaceholders(value: unknown, placeholders: Record<string, string | number>): unknown {

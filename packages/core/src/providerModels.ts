@@ -213,7 +213,7 @@ export const DEFAULT_PROVIDER_MODEL_PRESETS: readonly ProviderModelPreset[] = [
     durationOptions: rangeInclusive(2, 8),
     defaultDurationSeconds: 4,
     resolutionOptions: ["512x512", "640x640", "768x768"],
-    defaultResolution: "640x640"
+    defaultResolution: "768x768"
   }
 ];
 

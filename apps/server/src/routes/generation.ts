@@ -659,7 +659,8 @@ async function runLocalComfyUiVideoGeneration(
         durationSeconds: Number(input.durationSeconds ?? 4),
         resolution: input.resolution ?? "512x512",
         imagePaths,
-        workingDirectory: process.cwd()
+        workingDirectory: process.cwd(),
+        ffmpegPath: config.ffmpegPath
       } satisfies LocalComfyUiVideoGenerationInput);
     }
   );
