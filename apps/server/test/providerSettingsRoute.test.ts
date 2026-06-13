@@ -10,6 +10,7 @@ const originalLocalSoraBin = process.env.LOCAL_SORA_BIN;
 const originalLocalGptSoraUseCodex = process.env.LOCAL_GPT_SORA_USE_CODEX;
 const originalLocalComfyUiWorkflowJson = process.env.LOCAL_COMFYUI_VIDEO_WORKFLOW_JSON;
 const originalLocalComfyUiWorkflow = process.env.LOCAL_COMFYUI_VIDEO_WORKFLOW;
+const originalLocalComfyUiDisableDefaults = process.env.LOCAL_COMFYUI_VIDEO_DISABLE_DEFAULTS;
 
 afterEach(() => {
   restoreEnv("LOCAL_GPT_SORA_BIN", originalLocalGptSoraBin);
@@ -17,6 +18,7 @@ afterEach(() => {
   restoreEnv("LOCAL_GPT_SORA_USE_CODEX", originalLocalGptSoraUseCodex);
   restoreEnv("LOCAL_COMFYUI_VIDEO_WORKFLOW_JSON", originalLocalComfyUiWorkflowJson);
   restoreEnv("LOCAL_COMFYUI_VIDEO_WORKFLOW", originalLocalComfyUiWorkflow);
+  restoreEnv("LOCAL_COMFYUI_VIDEO_DISABLE_DEFAULTS", originalLocalComfyUiDisableDefaults);
   for (const dir of tempDirs.splice(0)) {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -35,6 +37,7 @@ describe("provider settings routes", () => {
     delete process.env.LOCAL_GPT_SORA_USE_CODEX;
     delete process.env.LOCAL_COMFYUI_VIDEO_WORKFLOW_JSON;
     delete process.env.LOCAL_COMFYUI_VIDEO_WORKFLOW;
+    process.env.LOCAL_COMFYUI_VIDEO_DISABLE_DEFAULTS = "1";
     const app = createApp({
       ffmpegPath: "ffmpeg",
       port: 8787,

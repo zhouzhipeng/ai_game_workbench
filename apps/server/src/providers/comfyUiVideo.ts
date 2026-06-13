@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { basename, extname } from "node:path";
+import { basename, extname, join } from "node:path";
 
 export const LOCAL_COMFYUI_VIDEO_MODEL = "local/comfyui-video-workflow";
+const DEFAULT_COMFYUI_VIDEO_WORKFLOW_FILE = "ai-game-workbench-ltxv-i2v-api.json";
 
 export interface LocalComfyUiVideoGenerationInput {
   model: string;
@@ -119,13 +120,40 @@ function resolveComfyWorkflowSource(): { content: string; label: string } | unde
     return { content: inlineWorkflow, label: "LOCAL_COMFYUI_VIDEO_WORKFLOW_JSON" };
   }
   const path = (process.env.LOCAL_COMFYUI_VIDEO_WORKFLOW ?? process.env.LOCAL_COMFYUI_WORKFLOW_PATH)?.trim();
-  if (!path || !existsSync(path)) {
+  if (path && existsSync(path)) {
+    return {
+      content: readFileSyncUtf8(path),
+      label: path
+    };
+  }
+  if (process.env.LOCAL_COMFYUI_VIDEO_DISABLE_DEFAULTS === "1") {
     return undefined;
   }
-  return {
-    content: readFileSyncUtf8(path),
-    label: path
-  };
+  for (const defaultPath of getDefaultComfyWorkflowCandidates()) {
+    if (existsSync(defaultPath)) {
+      return {
+        content: readFileSyncUtf8(defaultPath),
+        label: defaultPath
+      };
+    }
+  }
+  return undefined;
+}
+
+function getDefaultComfyWorkflowCandidates(): string[] {
+  const bases = [
+    process.env.LOCAL_COMFYUI_BASE_DIR,
+    process.env.COMFYUI_BASE_DIR,
+    process.env.COMFYUI_BASE_DIRECTORY,
+    "D:\\comfyui_data",
+    "C:\\comfyui_data",
+    process.env.USERPROFILE ? join(process.env.USERPROFILE, "comfyui_data") : undefined,
+    process.env.APPDATA ? join(process.env.APPDATA, "ComfyUI") : undefined
+  ];
+  const candidates = bases
+    .filter((base): base is string => typeof base === "string" && base.trim().length > 0)
+    .map((base) => join(base, "user", "default", "workflows", DEFAULT_COMFYUI_VIDEO_WORKFLOW_FILE));
+  return [...new Set(candidates)];
 }
 
 function readFileSyncUtf8(path: string): string {

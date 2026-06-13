@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -8,6 +8,8 @@ const originalWorkflowJson = process.env.LOCAL_COMFYUI_VIDEO_WORKFLOW_JSON;
 const originalWorkflowPath = process.env.LOCAL_COMFYUI_VIDEO_WORKFLOW;
 const originalComfyUrl = process.env.LOCAL_COMFYUI_URL;
 const originalFps = process.env.LOCAL_COMFYUI_VIDEO_FPS;
+const originalDisableDefaults = process.env.LOCAL_COMFYUI_VIDEO_DISABLE_DEFAULTS;
+const originalComfyBaseDir = process.env.LOCAL_COMFYUI_BASE_DIR;
 const tempDirs: string[] = [];
 
 afterEach(() => {
@@ -16,6 +18,8 @@ afterEach(() => {
   restoreEnv("LOCAL_COMFYUI_VIDEO_WORKFLOW", originalWorkflowPath);
   restoreEnv("LOCAL_COMFYUI_URL", originalComfyUrl);
   restoreEnv("LOCAL_COMFYUI_VIDEO_FPS", originalFps);
+  restoreEnv("LOCAL_COMFYUI_VIDEO_DISABLE_DEFAULTS", originalDisableDefaults);
+  restoreEnv("LOCAL_COMFYUI_BASE_DIR", originalComfyBaseDir);
   for (const dir of tempDirs.splice(0)) {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -25,10 +29,30 @@ describe("ComfyUI video provider", () => {
   it("is configured only when a workflow is available", () => {
     delete process.env.LOCAL_COMFYUI_VIDEO_WORKFLOW_JSON;
     delete process.env.LOCAL_COMFYUI_VIDEO_WORKFLOW;
+    process.env.LOCAL_COMFYUI_VIDEO_DISABLE_DEFAULTS = "1";
 
     expect(isLocalComfyUiVideoConfigured()).toBe(false);
 
     process.env.LOCAL_COMFYUI_VIDEO_WORKFLOW_JSON = JSON.stringify({ "1": { class_type: "SaveVideo", inputs: {} } });
+
+    expect(isLocalComfyUiVideoConfigured()).toBe(true);
+  });
+
+  it("detects the default LTXV workflow under the configured ComfyUI base directory", () => {
+    const root = mkdtempSync(join(tmpdir(), "ai-game-workbench-comfyui-base-"));
+    tempDirs.push(root);
+    const workflowDir = join(root, "user", "default", "workflows");
+    mkdirSync(workflowDir, { recursive: true });
+    writeFileSync(join(workflowDir, "ai-game-workbench-ltxv-i2v-api.json"), JSON.stringify({
+      "1": {
+        class_type: "SaveVideo",
+        inputs: {}
+      }
+    }));
+    delete process.env.LOCAL_COMFYUI_VIDEO_WORKFLOW_JSON;
+    delete process.env.LOCAL_COMFYUI_VIDEO_WORKFLOW;
+    delete process.env.LOCAL_COMFYUI_VIDEO_DISABLE_DEFAULTS;
+    process.env.LOCAL_COMFYUI_BASE_DIR = root;
 
     expect(isLocalComfyUiVideoConfigured()).toBe(true);
   });
