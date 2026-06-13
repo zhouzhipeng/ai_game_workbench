@@ -38,7 +38,26 @@ describe("ComfyUI video provider", () => {
     expect(isLocalComfyUiVideoConfigured()).toBe(true);
   });
 
-  it("detects the default LTXV workflow under the configured ComfyUI base directory", () => {
+  it("detects the default Wan2.2 workflow under the configured ComfyUI base directory", () => {
+    const root = mkdtempSync(join(tmpdir(), "ai-game-workbench-comfyui-base-"));
+    tempDirs.push(root);
+    const workflowDir = join(root, "user", "default", "workflows");
+    mkdirSync(workflowDir, { recursive: true });
+    writeFileSync(join(workflowDir, "ai-game-workbench-wan22-ti2v-api.json"), JSON.stringify({
+      "1": {
+        class_type: "SaveVideo",
+        inputs: {}
+      }
+    }));
+    delete process.env.LOCAL_COMFYUI_VIDEO_WORKFLOW_JSON;
+    delete process.env.LOCAL_COMFYUI_VIDEO_WORKFLOW;
+    delete process.env.LOCAL_COMFYUI_VIDEO_DISABLE_DEFAULTS;
+    process.env.LOCAL_COMFYUI_BASE_DIR = root;
+
+    expect(isLocalComfyUiVideoConfigured()).toBe(true);
+  });
+
+  it("keeps the default LTXV workflow as a fallback", () => {
     const root = mkdtempSync(join(tmpdir(), "ai-game-workbench-comfyui-base-"));
     tempDirs.push(root);
     const workflowDir = join(root, "user", "default", "workflows");

@@ -4,7 +4,10 @@ import { readFile } from "node:fs/promises";
 import { basename, extname, join } from "node:path";
 
 export const LOCAL_COMFYUI_VIDEO_MODEL = "local/comfyui-video-workflow";
-const DEFAULT_COMFYUI_VIDEO_WORKFLOW_FILE = "ai-game-workbench-ltxv-i2v-api.json";
+const DEFAULT_COMFYUI_VIDEO_WORKFLOW_FILES = [
+  "ai-game-workbench-wan22-ti2v-api.json",
+  "ai-game-workbench-ltxv-i2v-api.json"
+] as const;
 
 export interface LocalComfyUiVideoGenerationInput {
   model: string;
@@ -152,7 +155,9 @@ function getDefaultComfyWorkflowCandidates(): string[] {
   ];
   const candidates = bases
     .filter((base): base is string => typeof base === "string" && base.trim().length > 0)
-    .map((base) => join(base, "user", "default", "workflows", DEFAULT_COMFYUI_VIDEO_WORKFLOW_FILE));
+    .flatMap((base) =>
+      DEFAULT_COMFYUI_VIDEO_WORKFLOW_FILES.map((file) => join(base, "user", "default", "workflows", file))
+    );
   return [...new Set(candidates)];
 }
 
