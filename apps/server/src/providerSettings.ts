@@ -6,6 +6,7 @@ import {
   DEFAULT_PROVIDER_MODEL_PRESETS,
   DEFAULT_PROVIDER_SETTINGS,
   APIMART_PROVIDER_ID,
+  LOCAL_COMFYUI_VIDEO_MODEL,
   LOCAL_CODEX_VIDEO_MODEL,
   OPENROUTER_COMPATIBLE_PROVIDER_ID,
   OPENROUTER_PROVIDER_ID,
@@ -19,6 +20,7 @@ import {
 } from "@ai-game-workbench/core";
 import type { AppConfig } from "./config";
 import { isLocalCodexVideoConfigured } from "./providers/localCodex";
+import { isLocalComfyUiVideoConfigured } from "./providers/comfyUiVideo";
 
 const PROVIDER_SETTINGS_PATH = ["config", "provider-settings.json"] as const;
 const PROVIDER_SECRETS_PATH = ["config", "provider-secrets.json"] as const;
@@ -152,6 +154,9 @@ function isPublicProviderModelAvailable(model: ProviderModelPreset): boolean {
   if (model.id === LOCAL_CODEX_VIDEO_MODEL) {
     return isLocalCodexVideoConfigured();
   }
+  if (model.id === LOCAL_COMFYUI_VIDEO_MODEL) {
+    return isLocalComfyUiVideoConfigured();
+  }
   return true;
 }
 
@@ -185,7 +190,7 @@ export async function resolveGenerationProviderModel(
   if (!provider.enabled) {
     return { statusCode: 400, error: `Provider is disabled: ${provider.label}` };
   }
-  if (provider.kind === "local-codex") {
+  if (provider.kind === "local-codex" || provider.kind === "local-comfyui") {
     return { provider, model };
   }
   const selectedProviderId = requestAuth.providerId?.trim();
@@ -503,7 +508,7 @@ function readRequiredId(value: unknown): string | undefined {
 }
 
 function readProviderKind(value: unknown): ProviderKind | undefined {
-  return value === "openrouter" || value === "openrouter-compatible-chat" || value === "openai-images" || value === "apimart" || value === "local-codex"
+  return value === "openrouter" || value === "openrouter-compatible-chat" || value === "openai-images" || value === "apimart" || value === "local-codex" || value === "local-comfyui"
     ? value
     : undefined;
 }

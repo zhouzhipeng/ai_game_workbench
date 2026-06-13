@@ -1042,6 +1042,59 @@ describe("generation route", () => {
     await app.close();
   });
 
+  it("generates ComfyUI workflow videos from local workbench assets", async () => {
+    const storageDir = makeStorageDir();
+    mkdirSync(join(storageDir, "assets"), { recursive: true });
+    writeFileSync(join(storageDir, "assets", "hero.png"), "hero-frame");
+    const localComfyUiVideoGenerator = vi.fn(async (input) => {
+      expect(input.model).toBe("local/comfyui-video-workflow");
+      expect(input.prompt).toContain("walk cycle");
+      expect(input.durationSeconds).toBe(4);
+      expect(input.resolution).toBe("512x512");
+      expect(input.imagePaths).toEqual([join(storageDir, "assets", "hero.png")]);
+      return {
+        buffer: Buffer.from([5, 6, 7, 8]),
+        extension: "mp4" as const,
+        providerResponse: {
+          provider: "local-comfyui",
+          model: input.model
+        }
+      };
+    });
+    const app = createApp({
+      ffmpegPath: "ffmpeg",
+      port: 8787,
+      storageDir,
+      localComfyUiVideoGenerator
+    });
+    await app.ready();
+
+    const submit = await app.inject({
+      method: "POST",
+      url: "/api/generation/video",
+      headers: {
+        "x-character-id": "hero"
+      },
+      payload: {
+        model: "local/comfyui-video-workflow",
+        prompt: "walk cycle",
+        firstFrameUrl: "/assets/hero.png",
+        durationSeconds: 4,
+        resolution: "512x512"
+      }
+    });
+
+    expect(submit.statusCode).toBe(200);
+    expect(submit.json()).toMatchObject({
+      status: "completed",
+      localVideoUrl: "/characters/hero/base-character/walk-video/source.mp4"
+    });
+    expect([...readFileSync(join(storageDir, "characters", "hero", "base-character", "walk-video", "source.mp4"))]).toEqual([5, 6, 7, 8]);
+    expect(localComfyUiVideoGenerator).toHaveBeenCalledOnce();
+
+    await app.close();
+  });
+
   it("rejects public first-frame URLs that return an ngrok warning page instead of an image", async () => {
     const fetchMock = vi.fn(async () =>
       new Response("ERR_NGROK_6024", {

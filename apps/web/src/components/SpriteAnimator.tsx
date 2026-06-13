@@ -235,6 +235,7 @@ const DEFAULT_ATTACK_START_SCALE = 0.74;
 const DEFAULT_JUMP_START_SCALE = 0.78;
 const LOCAL_CODEX_IMAGE_MODEL = "local/gpt-image-2";
 const LOCAL_CODEX_VIDEO_MODEL = "local/gpt-sora";
+const LOCAL_COMFYUI_VIDEO_MODEL = "local/comfyui-video-workflow";
 const APIMART_IMAGE_MODEL = "apimart/gpt-image-2";
 interface ImageGenerationSizeOption {
   size: number;
@@ -5490,7 +5491,7 @@ function isVideoImageUrlAccepted(model: string, value: string): boolean {
   if (isPublicHttpsUrl(value)) {
     return true;
   }
-  return (model.startsWith("apimart/") || model === LOCAL_CODEX_VIDEO_MODEL) && isLocalWorkbenchAssetUrl(value);
+  return (model.startsWith("apimart/") || model === LOCAL_CODEX_VIDEO_MODEL || model === LOCAL_COMFYUI_VIDEO_MODEL) && isLocalWorkbenchAssetUrl(value);
 }
 
 function isLocalWorkbenchAssetUrl(value: string): boolean {

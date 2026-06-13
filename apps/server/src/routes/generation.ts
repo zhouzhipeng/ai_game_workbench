@@ -30,6 +30,12 @@ import {
   type LocalCodexImageGenerationResult,
   type LocalCodexVideoGenerationResult
 } from "../providers/localCodex";
+import {
+  generateLocalComfyUiVideo,
+  isLocalComfyUiVideoModel,
+  type LocalComfyUiVideoGenerationInput,
+  type LocalComfyUiVideoGenerationResult
+} from "../providers/comfyUiVideo";
 import type { AppConfig } from "../config";
 import { resolvePublicAssetBaseUrl, resolvePublicServerBaseUrl } from "./assets";
 import {
@@ -331,6 +337,20 @@ export function registerGenerationRoutes(app: FastifyInstance, config: AppConfig
         return sendGenerationError(error, reply);
       }
     }
+    if (resolvedModel.provider.kind === "local-comfyui" || isLocalComfyUiVideoModel(resolvedModel.model.upstreamModel)) {
+      try {
+        const localResult = await runLocalComfyUiVideoGeneration({
+          ...input,
+          model: resolvedModel.model.upstreamModel
+        }, config);
+        return await storeLocalVideoGenerationResult(localResult, config, {
+          characterId,
+          actionKind
+        });
+      } catch (error: unknown) {
+        return sendGenerationError(error, reply);
+      }
+    }
     if (resolvedModel.provider.kind !== "openrouter" && resolvedModel.provider.kind !== "apimart") {
       return reply.code(400).send({ error: "Only OpenRouter and APIMart video models are supported" });
     }
@@ -612,6 +632,35 @@ async function runLocalCodexVideoGeneration(
         imagePaths,
         workingDirectory: process.cwd()
       });
+    }
+  );
+}
+
+async function runLocalComfyUiVideoGeneration(
+  input: Parameters<typeof buildVideoGenerationPayload>[0],
+  config: AppConfig
+): Promise<LocalComfyUiVideoGenerationResult> {
+  const sources = [
+    input.firstFrameUrl,
+    input.lastFrameUrl,
+    ...(input.inputReferenceUrls ?? [])
+  ].filter((url): url is string => typeof url === "string" && url.trim().length > 0);
+  return withLocalCodexVideoSources(
+    sources,
+    config.storageDir,
+    async (imagePaths) => {
+      const generator = config.localComfyUiVideoGenerator ?? generateLocalComfyUiVideo;
+      return generator({
+        model: input.model,
+        prompt: [
+          input.prompt,
+          input.referenceOnly ? "Treat additional reference images as guidance only; preserve the first frame composition and character identity." : ""
+        ].filter(Boolean).join("\n\n"),
+        durationSeconds: Number(input.durationSeconds ?? 4),
+        resolution: input.resolution ?? "512x512",
+        imagePaths,
+        workingDirectory: process.cwd()
+      } satisfies LocalComfyUiVideoGenerationInput);
     }
   );
 }

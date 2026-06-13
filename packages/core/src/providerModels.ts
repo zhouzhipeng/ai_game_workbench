@@ -1,4 +1,4 @@
-export type ProviderKind = "openrouter" | "openrouter-compatible-chat" | "openai-images" | "apimart" | "local-codex";
+export type ProviderKind = "openrouter" | "openrouter-compatible-chat" | "openai-images" | "apimart" | "local-codex" | "local-comfyui";
 
 export type GenerationCapability = "image" | "video";
 
@@ -47,8 +47,10 @@ export const OPENROUTER_PROVIDER_ID = "openrouter";
 export const OPENROUTER_COMPATIBLE_PROVIDER_ID = "openrouter-compatible";
 export const APIMART_PROVIDER_ID = "apimart";
 export const LOCAL_CODEX_PROVIDER_ID = "local-codex";
+export const LOCAL_COMFYUI_PROVIDER_ID = "local-comfyui";
 export const LOCAL_CODEX_IMAGE_MODEL = "local/gpt-image-2";
 export const LOCAL_CODEX_VIDEO_MODEL = "local/gpt-sora";
+export const LOCAL_COMFYUI_VIDEO_MODEL = "local/comfyui-video-workflow";
 
 export const DEFAULT_PROVIDER_SETTINGS: readonly ProviderSettings[] = [
   {
@@ -70,6 +72,13 @@ export const DEFAULT_PROVIDER_SETTINGS: readonly ProviderSettings[] = [
     label: "Local Codex image",
     kind: "local-codex",
     enabled: true
+  },
+  {
+    id: LOCAL_COMFYUI_PROVIDER_ID,
+    label: "Local ComfyUI",
+    kind: "local-comfyui",
+    enabled: true,
+    baseUrl: "http://127.0.0.1:8000"
   }
 ];
 
@@ -193,6 +202,18 @@ export const DEFAULT_PROVIDER_MODEL_PRESETS: readonly ProviderModelPreset[] = [
     defaultDurationSeconds: 4,
     resolutionOptions: ["480p", "720p", "1080p"],
     defaultResolution: "720p"
+  },
+  {
+    id: LOCAL_COMFYUI_VIDEO_MODEL,
+    providerId: LOCAL_COMFYUI_PROVIDER_ID,
+    upstreamModel: LOCAL_COMFYUI_VIDEO_MODEL,
+    label: "ComfyUI workflow",
+    capability: "video",
+    enabled: true,
+    durationOptions: rangeInclusive(2, 8),
+    defaultDurationSeconds: 4,
+    resolutionOptions: ["512x512", "640x640", "768x768"],
+    defaultResolution: "512x512"
   }
 ];
 

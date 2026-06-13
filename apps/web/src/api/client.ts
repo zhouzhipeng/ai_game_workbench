@@ -1,5 +1,6 @@
 import {
   APIMART_PROVIDER_ID,
+  LOCAL_COMFYUI_PROVIDER_ID,
   LOCAL_CODEX_PROVIDER_ID,
   OPENROUTER_PROVIDER_ID
 } from "@ai-game-workbench/core";
@@ -657,11 +658,12 @@ export function filterProviderModelCatalogForUserSettings(
   settings = loadUserApiProviderSettings()
 ): ProviderModelCatalog {
   const providerIds = getCompatibleProviderIds(settings.providerId);
-  const models = catalog.models.filter((model) => providerIds.includes(model.providerId) || model.providerId === LOCAL_CODEX_PROVIDER_ID);
+  const localProviderIds = [LOCAL_CODEX_PROVIDER_ID, LOCAL_COMFYUI_PROVIDER_ID];
+  const models = catalog.models.filter((model) => providerIds.includes(model.providerId) || localProviderIds.includes(model.providerId));
   const imageModels = models.filter((model) => model.capability === "image");
   const videoModels = models.filter((model) => model.capability === "video");
   return {
-    providers: catalog.providers.filter((provider) => providerIds.includes(provider.id) || provider.id === LOCAL_CODEX_PROVIDER_ID),
+    providers: catalog.providers.filter((provider) => providerIds.includes(provider.id) || localProviderIds.includes(provider.id)),
     models,
     imageModels,
     videoModels,

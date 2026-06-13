@@ -8,11 +8,15 @@ const tempDirs: string[] = [];
 const originalLocalGptSoraBin = process.env.LOCAL_GPT_SORA_BIN;
 const originalLocalSoraBin = process.env.LOCAL_SORA_BIN;
 const originalLocalGptSoraUseCodex = process.env.LOCAL_GPT_SORA_USE_CODEX;
+const originalLocalComfyUiWorkflowJson = process.env.LOCAL_COMFYUI_VIDEO_WORKFLOW_JSON;
+const originalLocalComfyUiWorkflow = process.env.LOCAL_COMFYUI_VIDEO_WORKFLOW;
 
 afterEach(() => {
   restoreEnv("LOCAL_GPT_SORA_BIN", originalLocalGptSoraBin);
   restoreEnv("LOCAL_SORA_BIN", originalLocalSoraBin);
   restoreEnv("LOCAL_GPT_SORA_USE_CODEX", originalLocalGptSoraUseCodex);
+  restoreEnv("LOCAL_COMFYUI_VIDEO_WORKFLOW_JSON", originalLocalComfyUiWorkflowJson);
+  restoreEnv("LOCAL_COMFYUI_VIDEO_WORKFLOW", originalLocalComfyUiWorkflow);
   for (const dir of tempDirs.splice(0)) {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -29,6 +33,8 @@ describe("provider settings routes", () => {
     delete process.env.LOCAL_GPT_SORA_BIN;
     delete process.env.LOCAL_SORA_BIN;
     delete process.env.LOCAL_GPT_SORA_USE_CODEX;
+    delete process.env.LOCAL_COMFYUI_VIDEO_WORKFLOW_JSON;
+    delete process.env.LOCAL_COMFYUI_VIDEO_WORKFLOW;
     const app = createApp({
       ffmpegPath: "ffmpeg",
       port: 8787,
@@ -96,6 +102,33 @@ describe("provider settings routes", () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.json().videoModels.map((model: { id: string }) => model.id)).toContain("local/gpt-sora");
+
+    await app.close();
+  });
+
+  it("publishes ComfyUI workflow video only when a workflow is configured", async () => {
+    process.env.LOCAL_COMFYUI_VIDEO_WORKFLOW_JSON = JSON.stringify({
+      "1": {
+        class_type: "LoadImage",
+        inputs: {
+          image: "{{inputImage}}"
+        }
+      }
+    });
+    const app = createApp({
+      ffmpegPath: "ffmpeg",
+      port: 8787,
+      storageDir: makeStorageDir()
+    });
+    await app.ready();
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/provider-models"
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().videoModels.map((model: { id: string }) => model.id)).toContain("local/comfyui-video-workflow");
 
     await app.close();
   });

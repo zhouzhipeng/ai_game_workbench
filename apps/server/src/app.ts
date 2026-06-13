@@ -72,7 +72,8 @@ export function createApp(options: CreateAppOptions) {
     openAiCompatibleApiKey: options.openAiCompatibleApiKey,
     publicAssetBaseUrl: options.publicAssetBaseUrl,
     localCodexImageGenerator: options.localCodexImageGenerator,
-    localCodexVideoGenerator: options.localCodexVideoGenerator
+    localCodexVideoGenerator: options.localCodexVideoGenerator,
+    localComfyUiVideoGenerator: options.localComfyUiVideoGenerator
   });
   registerModule02Routes(app, {
     port: options.port ?? 8787,
