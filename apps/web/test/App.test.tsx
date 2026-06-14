@@ -1028,7 +1028,9 @@ describe("App", () => {
   it("opens module 01 with two-level navigation and the base template page", () => {
     openSpriteAnimator();
 
-    expect(screen.getByRole("heading", { name: "高清2D角色制作" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "高清2D角色制作" })).not.toBeInTheDocument();
+    expect(screen.getByText("模块 01 / 基准模板")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "打开存储目录" })).toBeInTheDocument();
     expect(screen.getByLabelText("当前角色")).toHaveValue("hero");
 
     const oneClickButton = screen.getByRole("button", { name: /^一键生成$/ });

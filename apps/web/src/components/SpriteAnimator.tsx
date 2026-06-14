@@ -4,6 +4,7 @@ import {
   Eye,
   EyeOff,
   Film,
+  FolderOpen,
   Gamepad2,
   Pause,
   Play,
@@ -37,6 +38,7 @@ import {
   filterProviderModelCatalogForUserSettings,
   loadUserApiProviderSettings,
   listCharacters,
+  openStorageDirectory,
   prepareAdvancedActionStartFrame,
   processAdvancedActionVideo,
   processFourDirectionVideo,
@@ -73,6 +75,7 @@ import { MODULE01_NAV_ITEMS, MODULE01_PAGE_LABELS, type Module01Page } from "./m
 declare global {
   interface Window {
     gdevelopWorkbench?: {
+      openStorageDirectory?: () => Promise<{ ok: boolean; storageDir: string }>;
       importGDevelopExtension: (payload: {
         characterId: string;
         extensionName: string;
@@ -561,6 +564,7 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
   });
   const [isProcessingFirstFrame, setIsProcessingFirstFrame] = useState(false);
   const [isCreatingCharacter, setIsCreatingCharacter] = useState(false);
+  const [isOpeningStorageDirectory, setIsOpeningStorageDirectory] = useState(false);
   const [deletingCharacterId, setDeletingCharacterId] = useState("");
   const [processingDirectionTemplate, setProcessingDirectionTemplate] = useState<"idle" | "walk" | null>(null);
   const [isSubmittingVideo, setIsSubmittingVideo] = useState(false);
@@ -1168,6 +1172,20 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
       setCharacterStatus(`角色创建失败：${getErrorMessage(error)}`);
     } finally {
       setIsCreatingCharacter(false);
+    }
+  };
+
+  const handleOpenStorageDirectory = async () => {
+    setIsOpeningStorageDirectory(true);
+    try {
+      const result = window.gdevelopWorkbench?.openStorageDirectory
+        ? await window.gdevelopWorkbench.openStorageDirectory()
+        : await openStorageDirectory();
+      setCharacterStatus(`已打开存储目录：${result.storageDir}`);
+    } catch (error: unknown) {
+      setCharacterStatus(`存储目录打开失败：${getErrorMessage(error)}`);
+    } finally {
+      setIsOpeningStorageDirectory(false);
     }
   };
 
@@ -2612,7 +2630,16 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
         <header className="tool-header">
           <div>
             <p className="eyebrow">模块 01 / {MODULE01_PAGE_LABELS[activePage]}</p>
-            <h1>高清2D角色制作</h1>
+          </div>
+          <div className="tool-header-actions">
+            <button
+              className="tool-button"
+              type="button"
+              disabled={isOpeningStorageDirectory}
+              onClick={() => void handleOpenStorageDirectory()}
+            >
+              <FolderOpen size={16} /> {isOpeningStorageDirectory ? "打开中" : "打开存储目录"}
+            </button>
           </div>
         </header>
 

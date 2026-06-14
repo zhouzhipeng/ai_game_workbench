@@ -1108,6 +1108,16 @@ export async function processAdvancedActionVideo(input: ProcessAdvancedActionInp
   return response.json() as Promise<ProcessFourDirectionResult>;
 }
 
+export async function openStorageDirectory(): Promise<{ ok: boolean; storageDir: string }> {
+  const response = await fetch(`${API_BASE}/api/storage/open-directory`, {
+    method: "POST"
+  });
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, `存储目录打开失败：${response.status}`));
+  }
+  return response.json() as Promise<{ ok: boolean; storageDir: string }>;
+}
+
 export function toAbsoluteApiUrl(url: string): string {
   if (/^https?:\/\//i.test(url) || url.startsWith("blob:") || url.startsWith("data:")) {
     return url;

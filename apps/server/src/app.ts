@@ -12,6 +12,7 @@ import { registerModule02Routes } from "./routes/module02";
 import { registerOneClickCharacterRoutes, type OneClickCharacterJobRunner } from "./routes/oneClickCharacterJobs";
 import { registerProviderSettingsRoutes } from "./routes/providerSettings";
 import { registerRuntimeConfigRoutes } from "./routes/runtimeConfig";
+import { registerStorageRoutes } from "./routes/storage";
 import { resolveDefaultFfmpegPath, resolveDefaultModule01CharacterExportDir, resolveDefaultPresetsDir, type AppConfig } from "./config";
 
 export type CreateAppOptions = Pick<AppConfig, "storageDir"> & Partial<AppConfig> & {
@@ -36,6 +37,9 @@ export function createApp(options: CreateAppOptions) {
   });
 
   app.get("/api/health", async () => ({ ok: true, storageDir: options.storageDir }));
+  registerStorageRoutes(app, {
+    storageDir: options.storageDir
+  });
   registerRuntimeConfigRoutes(app, {
     storageDir: options.storageDir,
     publicAssetBaseUrl: options.publicAssetBaseUrl

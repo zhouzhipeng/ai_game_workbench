@@ -445,6 +445,13 @@ h2 {
   margin-bottom: 18px;
 }
 
+.tool-header-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 .toolbar,
 .control-row {
   display: flex;
