@@ -338,6 +338,8 @@ h2 {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  min-width: 0;
+  overflow-x: hidden;
 }
 
 .nav-brand {
@@ -386,6 +388,14 @@ h2 {
   padding: 10px;
   display: grid;
   gap: 9px;
+  min-width: 0;
+}
+
+.character-panel input,
+.character-panel select,
+.character-panel .tool-button {
+  width: 100%;
+  min-width: 0;
 }
 
 .compact-field {
@@ -396,6 +406,10 @@ h2 {
   color: #9dacbd;
   font-size: 12px;
   line-height: 1.35;
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .character-select-row {

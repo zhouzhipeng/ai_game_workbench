@@ -1178,10 +1178,12 @@ export function SpriteAnimator({ defaultKeys, onBack }: SpriteAnimatorProps) {
   const handleOpenStorageDirectory = async () => {
     setIsOpeningStorageDirectory(true);
     try {
-      const result = window.gdevelopWorkbench?.openStorageDirectory
-        ? await window.gdevelopWorkbench.openStorageDirectory()
-        : await openStorageDirectory();
-      setCharacterStatus(`已打开存储目录：${result.storageDir}`);
+      if (window.gdevelopWorkbench?.openStorageDirectory) {
+        await window.gdevelopWorkbench.openStorageDirectory();
+      } else {
+        await openStorageDirectory();
+      }
+      setCharacterStatus("已打开存储目录。");
     } catch (error: unknown) {
       setCharacterStatus(`存储目录打开失败：${getErrorMessage(error)}`);
     } finally {
